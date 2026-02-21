@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your First Monte Carlo: Interactive Law of Large Numbers Demo</title>
+  <meta name="description" content="Flip a coin 10 times or 100,000 times and watch the law of large numbers in action. See why Monte Carlo simulation works, no statistics degree required. A companion tool for From Heatmaps to Histograms by Tony Martin-Vegue." />
+  <meta name="author" content="Tony Martin-Vegue" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://www.heatmapstohistograms.com/tools/your-first-monte-carlo" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Your First Monte Carlo: Watch the Law of Large Numbers in Action" />
+  <meta property="og:description" content="Flip a coin 10 times or 100,000 and see why Monte Carlo simulation works. Interactive companion tool for From Heatmaps to Histograms." />
+  <meta property="og:url" content="https://www.heatmapstohistograms.com/tools/your-first-monte-carlo" />
+  <meta property="og:image" content="https://www.heatmapstohistograms.com/tools/og-your-first-monte-carlo.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:site_name" content="From Heatmaps to Histograms" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Your First Monte Carlo: Watch the Law of Large Numbers in Action" />
+  <meta name="twitter:description" content="Flip a coin 10 times or 100,000. See why Monte Carlo works. Interactive CRQ tool by Tony Martin-Vegue." />
+  <meta name="twitter:image" content="https://www.heatmapstohistograms.com/tools/og-your-first-monte-carlo.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0B1120;font-family:'Source Serif 4',Georgia,serif}
+    ::selection{background:#F59E0B;color:#000}
+    a:hover{opacity:0.85}
+    input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:6px;background:#1E293B;border-radius:3px;outline:none;cursor:pointer}
+    input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;background:#F59E0B;border-radius:50%;cursor:pointer;border:2px solid #0B1120}
+    input[type=range]::-moz-range-thumb{width:22px;height:22px;background:#F59E0B;border-radius:50%;cursor:pointer;border:2px solid #0B1120}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script>
+  'use strict';
+  const {useState,useCallback,useEffect,useRef,createElement:h}=React;
+
+  const C={bg:"#0B1120",bgCard:"#111827",border:"#1E293B",borderLight:"#334155",text:"#E2E8F0",textMuted:"#94A3B8",textDim:"#64748B",accent:"#F59E0B",accentGlow:"rgba(245,158,11,0.15)",danger:"#EF4444",dangerMuted:"rgba(239,68,68,0.2)",success:"#10B981"};
+  const mono="'IBM Plex Mono', monospace";
+  const serif="'Source Serif 4', Georgia, serif";
+  const NS=[10,20,50,100,250,500,1000,2500,5000,10000,50000,100000];
+  const TL={0:"10",3:"100",6:"1K",9:"10K",11:"100K"};
+  const REP=200;
+
+  function useIsMobile(bp){const[m,setM]=useState(false);useEffect(()=>{const c=()=>setM(window.innerWidth<(bp||768));c();window.addEventListener("resize",c);return()=>window.removeEventListener("resize",c);},[bp]);return m;}
+
+  // Simulation
+  function gen(n){
+    const pr=new Array(n);let hd=0;
+    for(let i=0;i<n;i++){if(Math.random()<0.5)hd++;pr[i]=hd/(i+1);}
+    const sa=new Array(REP);
+    for(let r=0;r<REP;r++){let h2=0;for(let i=0;i<n;i++){if(Math.random()<0.5)h2++;}sa[r]=h2/n;}
+    sa.sort((a,b)=>a-b);
+    return{proportions:pr,sampling:sa,totalHeads:hd,finalProp:hd/n};
+  }
+
+  function getInsight(n){
+    const se=0.5/Math.sqrt(n),mg=1.96*se*100;
+    if(n<=20){const lo=Math.max(0,50-mg).toFixed(0),hi=Math.min(100,50+mg).toFixed(0);return"With "+n+" flips, 95% of fair-coin experiments would produce between "+lo+"% and "+hi+"% heads. That range is too wide to be useful.";}
+    if(n<=200)return"At "+n+" flips, repeating this would typically land within \u00B1"+mg.toFixed(0)+" percentage points of 50%. Still wide enough to draw the wrong conclusion.";
+    if(n<=5000)return"At "+n.toLocaleString()+" flips, run-to-run variation is down to about \u00B1"+mg.toFixed(1)+" percentage points. The signal is starting to emerge from the noise.";
+    return"At "+n.toLocaleString()+" flips, repeating this would shift the result by less than \u00B1"+mg.toFixed(2)+" percentage points. The estimate has stabilized.";
+  }
+
+  // Shared components
+  function Header({isMobile:mb}){
+    return h('div',{style:{borderBottom:"1px solid "+C.border,padding:mb?"12px 0":"16px 0"}},
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"0 16px":"0 24px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}},
+        h('div',null,
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{textDecoration:"none"}},
+            h('div',{style:{fontFamily:mono,fontSize:mb?10:11,letterSpacing:"0.15em",color:C.accent,textTransform:"uppercase",marginBottom:2}},"From Heatmaps to Histograms")),
+          h('div',{style:{fontFamily:mono,fontSize:mb?10:11,color:C.textDim}},"\u00B7 Interactive Tools \u00B7 Tony Martin-Vegue")),
+        !mb&&h('div',{style:{display:"flex",gap:20,fontFamily:mono,fontSize:11,color:C.textDim}},
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Book"),
+          h('a',{href:"https://www.heatmapstohistograms.com/newsletter",style:{color:C.textDim,textDecoration:"none"}},"Newsletter"),
+          h('a',{href:"https://www.95risk.com",style:{color:C.textDim,textDecoration:"none"}},"95 Risk Advisory"))));
+  }
+
+  function Footer({isMobile:mb}){
+    const ls={color:C.textMuted,textDecoration:"none"};
+    return h('div',{style:{borderTop:"1px solid "+C.border,padding:"28px 0",marginTop:64}},
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"0 16px":"0 24px",display:"flex",flexDirection:mb?"column":"row",justifyContent:"space-between",alignItems:mb?"center":"flex-start",gap:mb?16:0}},
+        h('div',{style:{textAlign:mb?"center":"left"}},
+          h('div',{style:{fontFamily:mono,fontSize:11,color:C.accent,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}},"From Heatmaps to Histograms"),
+          h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim}},"Tony Martin-Vegue \u00B7 Apress")),
+        h('div',{style:{display:"flex",gap:mb?20:24,fontFamily:mono,fontSize:11}},
+          h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:ls},"Order"),
+          h('a',{href:"https://www.heatmapstohistograms.com/newsletter",style:ls},"Newsletter"),
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:ls},"Book Site"),
+          h('a',{href:"https://www.95risk.com",style:ls},"Consulting"))));
+  }
+
+  function SLabel({n,label,color}){
+    return h('div',{style:{display:"flex",alignItems:"center",gap:12,marginBottom:20}},
+      h('div',{style:{width:32,height:32,borderRadius:"50%",background:color||C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:mono,fontSize:14,fontWeight:700,color:"#000",flexShrink:0}},n),
+      h('div',{style:{fontFamily:mono,fontSize:12,letterSpacing:"0.1em",textTransform:"uppercase",color:C.textMuted}},label));
+  }
+
+  // Running proportion chart
+  function PropChart({data,n,isMobile:mb}){
+    const ref=useRef(null);const[w,setW]=useState(500);
+    useEffect(()=>{if(!ref.current)return;const o=new ResizeObserver(e=>{for(const x of e)setW(x.contentRect.width);});o.observe(ref.current);return()=>o.disconnect();},[]);
+    const ht=mb?200:280,mg={top:16,right:16,bottom:32,left:48},pw=w-mg.left-mg.right,ph=ht-mg.top-mg.bottom;
+    const xS=k=>mg.left+((k-1)/Math.max(1,n-1))*pw,yS=v=>mg.top+(1-v)*ph,fs=mb?8:9;
+    const maxPts=600,pts=[];
+    if(data.length<=maxPts){for(let i=0;i<data.length;i++)pts.push({k:i+1,v:data[i]});}
+    else{const step=(data.length-1)/(maxPts-1);for(let i=0;i<maxPts;i++){const idx=Math.round(i*step);pts.push({k:idx+1,v:data[idx]});}}
+    const lp=pts.map((p,i)=>(i===0?"M":"L")+xS(p.k)+","+yS(p.v)).join(" ");
+    const bPts=300,up=[],lo=[];
+    for(let i=0;i<bPts;i++){const k=Math.max(1,Math.round((i/(bPts-1))*(n-1)+1)),se=0.5/Math.sqrt(k);up.push(xS(k)+","+yS(Math.min(1,0.5+1.96*se)));lo.unshift(xS(k)+","+yS(Math.max(0,0.5-1.96*se)));}
+    const bandD="M "+up.join(" L ")+" L "+lo.join(" L ")+" Z";
+    const yT=[0,0.25,0.5,0.75,1.0];
+    return h('div',{ref,style:{width:"100%"}},
+      h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,marginBottom:6}},"Proportion of heads after each flip"),
+      h('svg',{width:w,height:ht,style:{display:"block"}},
+        h('path',{d:bandD,fill:C.accent,opacity:0.1}),
+        ...yT.map(v=>h('g',{key:v},
+          h('line',{x1:mg.left,y1:yS(v),x2:w-mg.right,y2:yS(v),stroke:v===0.5?C.textDim:C.border,strokeWidth:v===0.5?1:0.5,strokeDasharray:v===0.5?"6,4":"2,4"}),
+          h('text',{x:mg.left-8,y:yS(v)+3.5,fill:v===0.5?C.textMuted:C.textDim,fontSize:fs,textAnchor:"end",fontFamily:mono},(v*100).toFixed(0)+"%"))),
+        h('path',{d:lp,fill:"none",stroke:C.accent,strokeWidth:1.5}),
+        h('circle',{cx:xS(n),cy:yS(data[data.length-1]),r:3.5,fill:C.accent}),
+        h('text',{x:w-mg.right,y:yS(0.5)-8,fill:C.textDim,fontSize:fs,textAnchor:"end",fontFamily:mono},"True probability: 50%"),
+        h('text',{x:mg.left+4,y:mg.top+10,fill:C.textDim,fontSize:fs,fontFamily:mono},"Shaded: 95% interval at each flip count"),
+        h('text',{x:mg.left,y:ht-6,fill:C.textDim,fontSize:fs,fontFamily:mono},"Flip 1"),
+        h('text',{x:w-mg.right,y:ht-6,fill:C.textDim,fontSize:fs,fontFamily:mono,textAnchor:"end"},"Flip "+n.toLocaleString())));
+  }
+
+  // Sampling distribution histogram
+  function SampHist({sampling,finalProp,n,isMobile:mb}){
+    const ref=useRef(null);const[w,setW]=useState(500);
+    useEffect(()=>{if(!ref.current)return;const o=new ResizeObserver(e=>{for(const x of e)setW(x.contentRect.width);});o.observe(ref.current);return()=>o.disconnect();},[]);
+    const ht=mb?160:200,mg={top:20,right:16,bottom:32,left:16},pw=w-mg.left-mg.right,ph=ht-mg.top-mg.bottom,fs=mb?8:9;
+    const nb=40,bw=1/nb,bins=Array.from({length:nb},()=>0);
+    for(const v of sampling)bins[Math.min(Math.floor(v/bw),nb-1)]++;
+    const mc=Math.max(...bins),barW=pw/nb,xS=v=>mg.left+v*pw,mx=mg.left+finalProp*pw;
+    return h('div',{ref,style:{width:"100%"}},
+      h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,marginBottom:6}},REP+" independent experiments at n="+n.toLocaleString()+" \u2014 distribution of results"),
+      h('svg',{width:w,height:ht,style:{display:"block"}},
+        ...bins.map((c,i)=>{const bh=mc>0?(c/mc)*ph:0;return h('rect',{key:i,x:mg.left+i*barW,y:mg.top+ph-bh,width:Math.max(barW-1,1),height:bh,fill:C.accent,opacity:0.7,rx:1});}),
+        h('line',{x1:mx,y1:mg.top,x2:mx,y2:mg.top+ph,stroke:C.text,strokeWidth:2,strokeDasharray:"4,3"}),
+        h('text',{x:mx,y:mg.top-6,fill:C.text,fontSize:fs,textAnchor:"middle",fontFamily:mono,fontWeight:600},"Your run: "+(finalProp*100).toFixed(1)+"%"),
+        h('line',{x1:xS(0.5),y1:mg.top+ph,x2:xS(0.5),y2:mg.top+ph+6,stroke:C.textDim,strokeWidth:1}),
+        h('text',{x:mg.left,y:ht-6,fill:C.textDim,fontSize:fs,fontFamily:mono},"0%"),
+        h('text',{x:xS(0.5),y:ht-6,fill:C.textMuted,fontSize:fs,fontFamily:mono,textAnchor:"middle"},"50%"),
+        h('text',{x:w-mg.right,y:ht-6,fill:C.textDim,fontSize:fs,fontFamily:mono,textAnchor:"end"},"100%")));
+  }
+
+  function Disclaimer(){
+    return h('div',{style:{maxWidth:1100,margin:"0 auto",padding:"32px 24px 0"}},
+      h('div',{style:{background:C.accent+"08",border:"1px solid "+C.accent+"22",borderRadius:8,padding:"14px 18px",fontFamily:mono,fontSize:11,color:C.textDim,lineHeight:1.6}},
+        h('span',{style:{color:C.accent,fontWeight:600}},"A NOTE ON THIS TOOL. "),
+        "This is a learning demo built on a fair coin (p=0.50, independent flips). The confidence band shows the theoretical range where 95% of running proportions fall at each flip count, derived from the standard error of a binomial proportion: SE = 0.5/\u221An. The sampling distribution uses "+REP+" direct simulations, not a normal approximation. Real risk events are neither independent nor identically distributed, but the core principle holds: more observations, less noise, better estimates."));
+  }
+
+  // Main App
+  function App(){
+    const mb=useIsMobile();
+    const[nIdx,setNIdx]=useState(3);
+    const[data,setData]=useState(()=>gen(NS[3]));
+    const n=NS[nIdx];
+    const onSlide=useCallback(e=>{const i=parseInt(e.target.value);setNIdx(i);setData(gen(NS[i]));},[]);
+    const again=useCallback(()=>{setData(gen(n));},[n]);
+    const pd=mb?16:24;
+
+    return h('div',{style:{minHeight:"100vh",background:C.bg,color:C.text}},
+      h(Header,{isMobile:mb}),
+
+      // ACT 1
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
+        h(SLabel,{n:"1",label:"The Lesson",color:C.danger}),
+        h('h1',{style:{fontFamily:serif,fontSize:mb?28:36,fontWeight:700,lineHeight:1.2,marginBottom:24,maxWidth:700}},"Your First Monte Carlo"),
+        h('div',{style:{maxWidth:680,fontFamily:serif,fontSize:mb?15:16,lineHeight:1.75,color:C.textMuted}},
+          h('p',{style:{marginBottom:16}},"Monte Carlo simulation starts with the same idea as flipping a coin. You define an event, assign it a probability, and flip thousands of times to see how the outcomes distribute. The intuition behind it is the law of large numbers: as the number of trials grows, the observed proportion converges on the underlying probability. Ten flips can land anywhere. Ten thousand settle down."),
+          h('p',null,"Below, you\u2019ll flip a fair coin and watch this happen. The line chart tracks the running proportion of heads after each flip. The histogram shows what would happen if you repeated the whole experiment "+REP+" times. Drag the slider from 10 flips to 100,000 and watch the noise disappear."))),
+
+      // ACT 2
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
+        h(SLabel,{n:"2",label:"The Tool"}),
+
+        // Controls
+        h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"16px":"20px 24px",marginBottom:24}},
+          h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}},
+            h('div',{style:{fontFamily:mono,fontSize:13,fontWeight:600,color:C.accent,textTransform:"uppercase",letterSpacing:"0.05em"}},"Number of Flips"),
+            h('div',{style:{display:"flex",alignItems:"center",gap:12}},
+              h('div',{style:{fontFamily:mono,fontSize:mb?20:24,fontWeight:700,color:C.text}},n.toLocaleString()),
+              h('button',{onClick:again,style:{padding:mb?"8px 14px":"8px 16px",background:"transparent",border:"1px solid "+C.accent,color:C.accent,borderRadius:6,fontFamily:mono,fontSize:12,fontWeight:600,cursor:"pointer",letterSpacing:"0.03em"}},"Flip Again"))),
+          h('input',{type:"range",min:0,max:NS.length-1,value:nIdx,onChange:onSlide,style:{width:"100%",marginBottom:8}}),
+          h('div',{style:{display:"flex",justifyContent:"space-between",fontFamily:mono,fontSize:9,color:C.textDim}},
+            ...NS.map((v,i)=>h('div',{key:i,style:{opacity:(TL[i]!==undefined||i===NS.length-1)?1:0,width:0,textAlign:"center"}},v>=1000?(v/1000)+"K":v)))),
+
+        // Result summary
+        h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:"16px 20px",marginBottom:24}},
+          h('div',{style:{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:8}},
+            h('span',{style:{fontFamily:mono,fontSize:mb?16:20,fontWeight:700,color:C.accent}},data.totalHeads.toLocaleString()+" heads"),
+            h('span',{style:{fontFamily:mono,fontSize:mb?13:14,color:C.textMuted}},"out of "+n.toLocaleString()+" flips = "+(data.finalProp*100).toFixed(1)+"%")),
+          h('div',{style:{fontFamily:serif,fontSize:mb?13:14,color:C.textDim,lineHeight:1.5}},getInsight(n))),
+
+        // Proportion chart
+        h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"12px":"16px 20px",marginBottom:16}},
+          h(PropChart,{data:data.proportions,n:n,isMobile:mb})),
+
+        // Sampling distribution
+        h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"12px":"16px 20px"}},
+          h(SampHist,{sampling:data.sampling,finalProp:data.finalProp,n:n,isMobile:mb}))),
+
+      // ACT 3
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
+        h(SLabel,{n:"3",label:"The Takeaway",color:C.success}),
+        h('div',{style:{maxWidth:680,fontFamily:serif,fontSize:mb?15:16,lineHeight:1.75,color:C.textMuted}},
+          h('p',{style:{marginBottom:16}},
+            data.proportions.length>1
+              ?"That line you watched stabilize is the law of large numbers in action. At 10 flips, the proportion bounced wildly because each new flip had outsize influence on the result. At 10,000, each flip barely moved the needle, and the proportion settled near 50%. The noise didn\u2019t disappear. It got overwhelmed by signal."
+              :"Run the simulation above and watch the law of large numbers in action. Start with 10 flips, then drag to 10,000 and see what changes."),
+          h('p',null,"Monte Carlo simulation in cyber risk follows the same core logic. Replace \u201Cheads\u201D with \u201Ca breach happens this year\u201D and you\u2019ve got a frequency simulation. Add a loss amount drawn from a range, and you\u2019ve got a risk model. Run it enough times and the range of likely outcomes comes into focus. That\u2019s the foundation this book is built on.")),
+        h('div',{style:{display:"flex",gap:12,marginTop:32,flexWrap:"wrap",fontFamily:mono,fontSize:12}},
+          h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:{padding:"10px 20px",borderRadius:6,background:C.accent,color:"#000",fontWeight:600,textDecoration:"none",letterSpacing:"0.03em"}},"Order the Book"),
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{padding:"10px 20px",borderRadius:6,background:"transparent",color:C.accent,border:"1px solid "+C.accent,textDecoration:"none",letterSpacing:"0.03em"}},"Book Site"),
+          h('a',{href:"https://www.heatmapstohistograms.com/newsletter",style:{padding:"10px 20px",borderRadius:6,background:"transparent",color:C.accent,border:"1px solid "+C.accent,textDecoration:"none",letterSpacing:"0.03em"}},"Newsletter"))),
+
+      h(Disclaimer),
+      h(Footer,{isMobile:mb}));
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+  </script>
+</body>
+</html>
