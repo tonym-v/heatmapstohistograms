@@ -70,7 +70,7 @@
     if(n<=20){const lo=Math.max(0,50-mg).toFixed(0),hi=Math.min(100,50+mg).toFixed(0);return"With "+n+" flips, 95% of fair-coin experiments would produce between "+lo+"% and "+hi+"% heads. That range is too wide to be useful.";}
     if(n<=200)return"At "+n+" flips, repeating this would typically land within \u00B1"+mg.toFixed(0)+" percentage points of 50%. Still wide enough to draw the wrong conclusion.";
     if(n<=5000)return"At "+n.toLocaleString()+" flips, run-to-run variation is down to about \u00B1"+mg.toFixed(1)+" percentage points. The signal is starting to emerge from the noise.";
-    return"At "+n.toLocaleString()+" flips, repeating this would shift the result by less than \u00B1"+mg.toFixed(2)+" percentage points. The estimate has stabilized.";
+    return"At "+n.toLocaleString()+" flips, repeating this would typically shift the result by less than \u00B1"+mg.toFixed(2)+" percentage points. The estimate has stabilized.";
   }
 
   // Shared components
@@ -181,8 +181,8 @@
         h(SLabel,{n:"1",label:"The Lesson",color:C.danger}),
         h('h1',{style:{fontFamily:serif,fontSize:mb?28:36,fontWeight:700,lineHeight:1.2,marginBottom:24,maxWidth:700}},"Your First Monte Carlo"),
         h('div',{style:{maxWidth:680,fontFamily:serif,fontSize:mb?15:16,lineHeight:1.75,color:C.textMuted}},
-          h('p',{style:{marginBottom:16}},"Monte Carlo simulation starts with the same idea as flipping a coin. You define an event, assign it a probability, and flip thousands of times to see how the outcomes distribute. The intuition behind it is the law of large numbers: as the number of trials grows, the observed proportion converges on the underlying probability. Ten flips can land anywhere. Ten thousand settle down."),
-          h('p',null,"Below, you\u2019ll flip a fair coin and watch this happen. The line chart tracks the running proportion of heads after each flip. The histogram shows what would happen if you repeated the whole experiment "+REP+" times. Drag the slider from 10 flips to 100,000 and watch the noise disappear."))),
+          h('p',{style:{marginBottom:16}},"Monte Carlo simulation starts with the same idea as flipping a coin. You have an event with some probability of occurring, and you simulate it thousands of times to see how the outcomes distribute. The intuition behind it is the law of large numbers: as the number of trials grows, the observed proportion converges on the underlying probability. Ten flips can land anywhere. Ten thousand settle down."),
+          h('p',null,"Below, you\u2019ll flip a fair coin and watch this happen. The line chart tracks the running proportion of heads after each flip. The histogram shows what would happen if you repeated the whole experiment "+REP+" times. Drag the slider from 10 flips to 100,000 and watch the noise shrink."))),
 
       // ACT 2
       h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
@@ -222,7 +222,7 @@
             data.proportions.length>1
               ?"That line you watched stabilize is the law of large numbers in action. At 10 flips, the proportion bounced wildly because each new flip had outsize influence on the result. At 10,000, each flip barely moved the needle, and the proportion settled near 50%. The noise didn\u2019t disappear. It got overwhelmed by signal."
               :"Run the simulation above and watch the law of large numbers in action. Start with 10 flips, then drag to 10,000 and see what changes."),
-          h('p',null,"Monte Carlo simulation in cyber risk follows the same core logic. Replace \u201Cheads\u201D with \u201Ca breach happens this year\u201D and you\u2019ve got a frequency simulation. Add a loss amount drawn from a range, and you\u2019ve got a risk model. Run it enough times and the range of likely outcomes comes into focus. That\u2019s the foundation this book is built on.")),
+          h('p',null,"Monte Carlo simulation in cyber risk follows the same core logic. Replace \u201Cheads\u201D with \u201Ca breach happens this year\u201D and you\u2019ve got a simple frequency model. Add a loss amount drawn from a range, and you\u2019ve got a risk model. Run it enough times and the range of likely outcomes comes into focus. That\u2019s the foundation this book is built on.")),
         h('div',{style:{display:"flex",gap:12,marginTop:32,flexWrap:"wrap",fontFamily:mono,fontSize:12}},
           h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:{padding:"10px 20px",borderRadius:6,background:C.accent,color:"#000",fontWeight:600,textDecoration:"none",letterSpacing:"0.03em"}},"Order the Book"),
           h('a',{href:"https://www.heatmapstohistograms.com/",style:{padding:"10px 20px",borderRadius:6,background:"transparent",color:C.accent,border:"1px solid "+C.accent,textDecoration:"none",letterSpacing:"0.03em"}},"Book Site"),
