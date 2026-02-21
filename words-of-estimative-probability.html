@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Can You Beat a CIA Officer? The Probability Word Challenge</title>
+  <meta name="description" content="Assign probabilities to common risk words and compare your answers against CIA, NATO, US, and UK intelligence standards. See why vague language fails. A companion tool for From Heatmaps to Histograms by Tony Martin-Vegue." />
+  <meta name="author" content="Tony Martin-Vegue" />
+  <meta name="robots" content="index, follow" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Can You Beat a CIA Officer? The Probability Word Challenge" />
+  <meta property="og:description" content="In 1951, CIA officers read 'serious possibility' as anything from 20% to 80%. Think you'd do better? Try the challenge." />
+  <meta property="og:site_name" content="From Heatmaps to Histograms" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Can You Beat a CIA Officer? The Probability Word Challenge" />
+  <meta name="twitter:description" content="In 1951, CIA officers read 'serious possibility' as anything from 20% to 80%. Think you'd do better?" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0B1120;font-family:'Source Serif 4',Georgia,serif}
+    ::selection{background:#F59E0B;color:#000}
+    a:hover{opacity:0.85}
+    input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:6px;background:#1E293B;border-radius:3px;outline:none;cursor:pointer}
+    input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;background:#F59E0B;border-radius:50%;cursor:pointer;border:2px solid #0B1120;box-shadow:0 0 8px rgba(245,158,11,0.3)}
+    input[type=range]::-moz-range-thumb{width:24px;height:24px;background:#F59E0B;border-radius:50%;cursor:pointer;border:2px solid #0B1120;box-shadow:0 0 8px rgba(245,158,11,0.3)}
+    input[type=range].untouched::-webkit-slider-thumb{background:#334155;box-shadow:none}
+    input[type=range].untouched::-moz-range-thumb{background:#334155;box-shadow:none}
+    button{font-family:'IBM Plex Mono',monospace}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    .fade-in{animation:fadeIn 0.4s ease-out forwards}
+    @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.4)}50%{box-shadow:0 0 0 8px rgba(239,68,68,0)}}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script>
+  'use strict';
+  const {useState,useCallback,useEffect,useRef,createElement:h}=React;
+
+  const C={bg:"#0B1120",bgCard:"#111827",border:"#1E293B",borderLight:"#334155",text:"#E2E8F0",textMuted:"#94A3B8",textDim:"#64748B",accent:"#F59E0B",accentGlow:"rgba(245,158,11,0.15)",danger:"#EF4444",dangerMuted:"rgba(239,68,68,0.2)",success:"#10B981"};
+  const mono="'IBM Plex Mono',monospace";
+  const serif="'Source Serif 4',Georgia,serif";
+
+  function useIsMobile(bp){const[m,setM]=useState(false);useEffect(()=>{const c=()=>setM(window.innerWidth<(bp||768));c();window.addEventListener("resize",c);return()=>window.removeEventListener("resize",c);},[bp]);return m;}
+
+  // ============================================================
+  // REFERENCE DATA
+  // Sources:
+  //   Kent, S. (1964). "Words of Estimative Probability."
+  //     Studies in Intelligence, 8(4), 49-65.
+  //   NATO (2016). Allied Joint Doctrine for Intelligence
+  //     Procedures, AJP-2.1.
+  //   ODNI (2015). Intelligence Community Directive 203:
+  //     Analytic Standards.
+  //   UK Defence Intelligence. PHIA Probability Yardstick.
+  //   Mandel, D. R. (2019). "Assessing and Communicating
+  //     Uncertainty Effectively in a Rapidly Changing World."
+  //     STO-MP-SAS-OCS-ORA-2019, NATO S&T Organization.
+  //   Budescu, D. V., Por, H., & Broomell, S. B. (2012).
+  //     "Effective communication of uncertainty in the IPCC
+  //     reports." Climatic Change, 113(2), 181-200.
+  // ============================================================
+
+  const WORDS = [
+    { id:"remote",       label:"Remote" },
+    { id:"unlikely",     label:"Unlikely" },
+    { id:"possible",     label:"Possible" },
+    { id:"even_chance",  label:"Even Chance" },
+    { id:"likely",       label:"Likely" },
+    { id:"very_likely",  label:"Very Likely" },
+    { id:"almost_certain", label:"Almost Certain" },
+  ];
+
+  // All sliders start at 0 — no anchoring bias
+  const DEFAULTS = { remote:0, unlikely:0, possible:0, even_chance:0, likely:0, very_likely:0, almost_certain:0 };
+
+  // Kent 1964: chart on page 8 of the declassified paper
+  // Point estimates with +/- ranges
+  const KENT = {
+    remote:       [2, 12],     // "Almost certainly not" ~7% +/- ~5%
+    unlikely:     [20, 40],    // "Probably not" ~30% +/- ~10%
+    possible:     null,        // Kent: no odds assignable
+    even_chance:  [40, 60],    // ~50% +/- ~10%
+    likely:       [63, 87],    // "Probable" ~75% +/- ~12%
+    very_likely:  [87, 99],    // "Almost certain" ~93% +/- ~6%
+    almost_certain:[87, 99],
+  };
+
+  // NATO AJP-2.1 (2016) — Mandel (2019) p.2
+  const NATO = {
+    remote:       null,
+    unlikely:     [10, 40],
+    possible:     null,
+    even_chance:  [40, 60],
+    likely:       [60, 90],
+    very_likely:  [90, 100],
+    almost_certain:null,
+  };
+
+  // US ICD 203 (2015) — Mandel (2019) p.2
+  const US = {
+    remote:       [1, 5],
+    unlikely:     [20, 45],
+    possible:     null,
+    even_chance:  [45, 55],
+    likely:       [55, 80],
+    very_likely:  [80, 95],
+    almost_certain:[95, 99],
+  };
+
+  // UK PHIA — Mandel (2019) p.2
+  const UK = {
+    remote:       [0, 5],
+    unlikely:     [25, 35],
+    possible:     [40, 50],
+    even_chance:  null,
+    likely:       [55, 75],
+    very_likely:  [80, 90],
+    almost_certain:[95, 100],
+  };
+
+  const SCALES = [
+    { key:"kent", label:"Kent / CIA (1964)", color:"#F59E0B", data:KENT },
+    { key:"nato", label:"NATO AJP-2.1", color:"#3B82F6", data:NATO },
+    { key:"us",   label:"US ICD 203", color:"#10B981", data:US },
+    { key:"uk",   label:"UK PHIA", color:"#A855F7", data:UK },
+  ];
+
+  const KENT_1951 = { lo: 20, hi: 80, kent_personal: 65 };
+
+  // ============================================================
+  // SHARED COMPONENTS
+  // ============================================================
+  function Header({isMobile:mb}){
+    return h('div',{style:{borderBottom:"1px solid "+C.border,padding:mb?"12px 0":"16px 0"}},
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"0 16px":"0 24px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}},
+        h('div',null,
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{textDecoration:"none"}},
+            h('div',{style:{fontFamily:mono,fontSize:mb?10:11,letterSpacing:"0.15em",color:C.accent,textTransform:"uppercase",marginBottom:2}},"From Heatmaps to Histograms")),
+          h('div',{style:{fontFamily:mono,fontSize:mb?10:11,color:C.textDim}},"\u00B7 Interactive Tools \u00B7 Tony Martin-Vegue")),
+        !mb&&h('div',{style:{display:"flex",gap:20,fontFamily:mono,fontSize:11,color:C.textDim}},
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Book"),
+          h('a',{href:"https://www.heatmapstohistograms.com/newsletter",style:{color:C.textDim,textDecoration:"none"}},"Newsletter"),
+          h('a',{href:"https://www.95risk.com",style:{color:C.textDim,textDecoration:"none"}},"95 Risk Advisory"))));
+  }
+
+  function Footer({isMobile:mb}){
+    const ls={color:C.textMuted,textDecoration:"none"};
+    return h('div',{style:{borderTop:"1px solid "+C.border,padding:"28px 0",marginTop:64}},
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"0 16px":"0 24px",display:"flex",flexDirection:mb?"column":"row",justifyContent:"space-between",alignItems:mb?"center":"flex-start",gap:mb?16:0}},
+        h('div',{style:{textAlign:mb?"center":"left"}},
+          h('div',{style:{fontFamily:mono,fontSize:11,color:C.accent,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}},"From Heatmaps to Histograms"),
+          h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim}},"Tony Martin-Vegue \u00B7 Apress")),
+        h('div',{style:{display:"flex",gap:mb?20:24,fontFamily:mono,fontSize:11}},
+          h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:ls},"Order"),
+          h('a',{href:"https://www.heatmapstohistograms.com/newsletter",style:ls},"Newsletter"),
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:ls},"Book Site"),
+          h('a',{href:"https://www.95risk.com",style:ls},"Consulting"))));
+  }
+
+  function SLabel({n,label,color}){
+    return h('div',{style:{display:"flex",alignItems:"center",gap:12,marginBottom:20}},
+      h('div',{style:{width:32,height:32,borderRadius:"50%",background:color||C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:mono,fontSize:14,fontWeight:700,color:"#000",flexShrink:0}},n),
+      h('div',{style:{fontFamily:mono,fontSize:12,letterSpacing:"0.1em",textTransform:"uppercase",color:C.textMuted}},label));
+  }
+
+  // ============================================================
+  // RESULTS: Per-word comparison row
+  // ============================================================
+  function ResultRow({word, userVal, isMobile:mb, delay}){
+    const ref=useRef(null);const[w,setW]=useState(400);
+    useEffect(()=>{if(!ref.current)return;const o=new ResizeObserver(e=>{for(const x of e)setW(x.contentRect.width);});o.observe(ref.current);return()=>o.disconnect();},[]);
+
+    const ht=mb?62:54;
+    const pw=w;
+    const xS=v=>(v/100)*pw;
+    const bh=6, gap=2;
+    const startY=10;
+
+    const bars=[];
+    SCALES.forEach((scale,si)=>{
+      const range=scale.data[word.id];
+      if(!range) return;
+      const x1=xS(range[0]), x2=xS(range[1]);
+      const y=startY+si*(bh+gap);
+      bars.push(h('rect',{key:scale.key,x:x1,y:y,width:Math.max(x2-x1,2),height:bh,fill:scale.color,opacity:0.7,rx:2}));
+    });
+
+    const dotY=startY+4*(bh+gap)+6;
+    const userX=xS(userVal);
+    const ticks=[0,25,50,75,100];
+
+    // Check if user is outside any scale
+    let outsideCount=0;
+    SCALES.forEach(s=>{
+      const range=s.data[word.id];
+      if(range && (userVal<range[0] || userVal>range[1])) outsideCount++;
+    });
+    const hasConflict=outsideCount>=2;
+
+    return h('div',{ref,className:"fade-in",style:{width:"100%",marginBottom:mb?16:12,animationDelay:(delay||0)+"ms"}},
+      h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}},
+        h('span',{style:{fontFamily:mono,fontSize:mb?12:13,fontWeight:600,color:C.text}},word.label),
+        h('span',{style:{fontFamily:mono,fontSize:mb?11:12,color:hasConflict?C.danger:C.accent,fontWeight:600}},"You: "+userVal+"%")),
+      h('svg',{width:w,height:ht,style:{display:"block"}},
+        ...ticks.map(v=>h('line',{key:"t"+v,x1:xS(v),y1:0,x2:xS(v),y2:ht,stroke:C.border,strokeWidth:0.5})),
+        h('line',{x1:xS(50),y1:0,x2:xS(50),y2:ht,stroke:C.borderLight,strokeWidth:0.5,strokeDasharray:"3,3"}),
+        ...bars,
+        h('polygon',{points:userX+","+(dotY-6)+" "+(userX+6)+","+dotY+" "+userX+","+(dotY+6)+" "+(userX-6)+","+dotY,fill:hasConflict?C.danger:C.text}),
+        ...ticks.map(v=>h('text',{key:"tl"+v,x:xS(v),y:ht-2,fill:C.textDim,fontSize:mb?7:8,textAnchor:"middle",fontFamily:mono},v+"%"))
+      ));
+  }
+
+  function Legend({isMobile:mb}){
+    const items=[...SCALES.map(s=>({color:s.color,label:s.label})),{color:C.text,label:"Your answer",diamond:true}];
+    return h('div',{style:{display:"flex",flexWrap:"wrap",gap:mb?10:16,marginBottom:20,fontFamily:mono,fontSize:mb?9:10,color:C.textDim}},
+      ...items.map((it,i)=>h('div',{key:i,style:{display:"flex",alignItems:"center",gap:5}},
+        it.diamond
+          ? h('div',{style:{width:8,height:8,background:it.color,transform:"rotate(45deg)"}})
+          : h('div',{style:{width:16,height:6,background:it.color,opacity:0.7,borderRadius:2}}),
+        it.label)));
+  }
+
+  // ============================================================
+  // KENT 1951 ANECDOTE — visual
+  // ============================================================
+  function KentAnecdote({isMobile:mb}){
+    const ref=useRef(null);const[w,setW]=useState(400);
+    useEffect(()=>{if(!ref.current)return;const o=new ResizeObserver(e=>{for(const x of e)setW(x.contentRect.width);});o.observe(ref.current);return()=>o.disconnect();},[]);
+    const ht=48;
+    const xS=v=>(v/100)*w;
+    return h('div',{className:"fade-in",style:{background:C.dangerMuted,border:"1px solid "+C.danger+"44",borderRadius:8,padding:mb?"14px":"16px 20px",marginBottom:24}},
+      h('div',{style:{fontFamily:mono,fontSize:mb?11:12,fontWeight:600,color:C.danger,marginBottom:8}},"\u201CSerious Possibility\u201D \u2014 CIA Officers, 1951"),
+      h('div',{style:{fontFamily:serif,fontSize:mb?13:14,color:C.textMuted,lineHeight:1.5,marginBottom:12}},
+        "Sherman Kent asked his fellow CIA officers what probability they had in mind when they agreed to call a Soviet attack on Yugoslavia a \u201Cserious possibility.\u201D The lowest answer was 20%. The highest was 80%. Kent himself meant 65%. The State Department official who read the report thought it meant something considerably lower. Same words. Same document. Same team."),
+      h('div',{ref,style:{width:"100%"}},
+        h('svg',{width:w,height:ht,style:{display:"block"}},
+          h('rect',{x:xS(0),y:12,width:xS(100),height:6,fill:C.border,rx:3}),
+          h('rect',{x:xS(20),y:12,width:xS(60),height:6,fill:C.danger,opacity:0.7,rx:3}),
+          h('circle',{cx:xS(65),cy:15,r:5,fill:C.danger,stroke:C.bg,strokeWidth:2}),
+          h('text',{x:xS(20),y:34,fill:C.danger,fontSize:9,textAnchor:"middle",fontFamily:mono},"20%"),
+          h('text',{x:xS(65),y:34,fill:C.danger,fontSize:9,textAnchor:"middle",fontFamily:mono,fontWeight:700},"Kent: 65%"),
+          h('text',{x:xS(80),y:34,fill:C.danger,fontSize:9,textAnchor:"middle",fontFamily:mono},"80%"),
+          h('text',{x:xS(0),y:46,fill:C.textDim,fontSize:8,textAnchor:"start",fontFamily:mono},"0%"),
+          h('text',{x:xS(100),y:46,fill:C.textDim,fontSize:8,textAnchor:"end",fontFamily:mono},"100%")
+        )));
+  }
+
+  // ============================================================
+  // CONFLICTS SECTION — the shocking part
+  // ============================================================
+  function ConflictCard({title, visual, body, isMobile:mb, delay}){
+    return h('div',{className:"fade-in",style:{
+      background:C.danger+"0A",border:"1px solid "+C.danger+"33",borderRadius:8,
+      padding:mb?"14px":"16px 20px",marginBottom:12,animationDelay:(delay||0)+"ms"
+    }},
+      h('div',{style:{fontFamily:mono,fontSize:mb?11:12,fontWeight:700,color:C.danger,marginBottom:8}},title),
+      visual,
+      h('div',{style:{fontFamily:serif,fontSize:mb?13:14,color:C.textMuted,lineHeight:1.5}},body));
+  }
+
+  function ConflictBarViz({ranges, isMobile:mb}){
+    // ranges: [{label,lo,hi,color}]
+    const ref=useRef(null);const[w,setW]=useState(400);
+    useEffect(()=>{if(!ref.current)return;const o=new ResizeObserver(e=>{for(const x of e)setW(x.contentRect.width);});o.observe(ref.current);return()=>o.disconnect();},[]);
+    const ht=12+ranges.length*20+8;
+    const xS=v=>(v/100)*w;
+    return h('div',{ref,style:{width:"100%",marginBottom:10}},
+      h('svg',{width:w,height:ht,style:{display:"block"}},
+        // Gridlines
+        ...[0,25,50,75,100].map(v=>h('line',{key:"g"+v,x1:xS(v),y1:0,x2:xS(v),y2:ht,stroke:C.border,strokeWidth:0.5})),
+        // Bars
+        ...ranges.map((r,i)=>{
+          const y=6+i*20;
+          return h('g',{key:i},
+            h('rect',{x:xS(r.lo),y:y,width:Math.max(xS(r.hi)-xS(r.lo),2),height:10,fill:r.color,opacity:0.7,rx:3}),
+            h('text',{x:xS(r.lo)-4,y:y+8,fill:r.color,fontSize:8,textAnchor:"end",fontFamily:mono,fontWeight:600},r.label));
+        }),
+        // Tick labels
+        ...[0,25,50,75,100].map(v=>h('text',{key:"tl"+v,x:xS(v),y:ht-0,fill:C.textDim,fontSize:7,textAnchor:"middle",fontFamily:mono},v+"%"))
+      ));
+  }
+
+  function ConflictsSection({isMobile:mb}){
+    return h('div',{style:{marginBottom:24}},
+      h('div',{style:{fontFamily:mono,fontSize:mb?12:13,fontWeight:700,color:C.danger,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:16}},
+        "\u26A0 Where the Standards Collide"),
+
+      // CONFLICT 1: "Unlikely" means different things
+      h(ConflictCard,{
+        isMobile:mb,
+        delay:100,
+        title:'Same word, different meaning: "Unlikely"',
+        visual: h(ConflictBarViz,{isMobile:mb,ranges:[
+          {label:"NATO",lo:10,hi:40,color:"#3B82F6"},
+          {label:"US",lo:20,hi:45,color:"#10B981"},
+          {label:"UK",lo:25,hi:35,color:"#A855F7"},
+        ]}),
+        body:'A NATO analyst writes "unlikely" meaning 12%. A UK analyst reads it and thinks 25\u201335%. They are in the same alliance, reading the same assessment, and they disagree on the odds by a factor of two.'
+      }),
+
+      // CONFLICT 2: NATO "even chance" maps to three US categories
+      h(ConflictCard,{
+        isMobile:mb,
+        delay:200,
+        title:'One NATO term, three US translations: "Even Chance"',
+        visual: h(ConflictBarViz,{isMobile:mb,ranges:[
+          {label:"NATO",lo:40,hi:60,color:"#3B82F6"},
+          {label:"US: Unlikely",lo:20,hi:45,color:"#10B981"},
+          {label:"US: Even",lo:45,hi:55,color:"#10B981"},
+          {label:"US: Likely",lo:55,hi:80,color:"#10B981"},
+        ]}),
+        body:'NATO\'s "even chance" spans 40\u201360%. In the US system, that single NATO term could mean "unlikely," "roughly even chance," or "likely" depending on the exact probability. A 42% assessment is an "even chance" to NATO and "unlikely" to the US.'
+      }),
+
+      // CONFLICT 3: NATO overlaps with itself
+      h(ConflictCard,{
+        isMobile:mb,
+        delay:300,
+        title:"NATO contradicts itself",
+        visual: h(ConflictBarViz,{isMobile:mb,ranges:[
+          {label:"Unlikely",lo:10,hi:40,color:"#3B82F6"},
+          {label:"Even chance",lo:40,hi:60,color:"#60A5FA"},
+        ]}),
+        body:'Within NATO\u2019s own standard, a probability of 40% could be described as "unlikely" or "even chance." The standard doesn\u2019t say which one to use at the boundary. Two analysts in the same organization, assessing the same threat at 40%, could issue assessments using different words.'
+      }),
+
+      // CONFLICT 4: UK leaves gaps
+      h(ConflictCard,{
+        isMobile:mb,
+        delay:400,
+        title:"The UK scale has holes in it",
+        visual: h(ConflictBarViz,{isMobile:mb,ranges:[
+          {label:"Remote",lo:0,hi:5,color:"#A855F7"},
+          {label:"\u2013",lo:5,hi:10,color:"#33333300"},
+          {label:"H. unlikely",lo:10,hi:20,color:"#A855F7"},
+          {label:"\u2013",lo:20,hi:25,color:"#33333300"},
+          {label:"Unlikely",lo:25,hi:35,color:"#A855F7"},
+          {label:"\u2013",lo:35,hi:40,color:"#33333300"},
+          {label:"Realistic",lo:40,hi:50,color:"#A855F7"},
+        ]}),
+        body:'The UK standard leaves entire chunks of the probability scale with no word to describe them: 5\u201310%, 20\u201325%, 35\u201340%, 50\u201355%, 75\u201380%, and 90\u201395% are all gaps. If your honest assessment is 22%, there is literally no approved term for it.'
+      }),
+
+      // CONFLICT 5: Orders of magnitude invisible
+      h(ConflictCard,{
+        isMobile:mb,
+        delay:500,
+        title:"One in a hundred = one in a million",
+        visual: h(ConflictBarViz,{isMobile:mb,ranges:[
+          {label:"NATO floor",lo:0,hi:10,color:"#3B82F6"},
+          {label:"US floor",lo:1,hi:5,color:"#10B981"},
+          {label:"UK floor",lo:0,hi:5,color:"#A855F7"},
+        ]}),
+        body:'NATO lumps everything below 10% into a single term: \u201Chighly unlikely.\u201D Whether the probability is one in ten or one in a million, it gets the same word. The US has finer distinctions at the bottom, but its floor is 1%, meaning anything below that has no approved expression at all. A 0.1% chance and a 5% chance are fifty times apart, yet NATO would describe them identically. Orders of magnitude, invisible.'
+      }),
+    );
+  }
+
+  // ============================================================
+  // MAIN APP
+  // ============================================================
+  function App(){
+    const mb=useIsMobile();
+    const[vals,setVals]=useState({...DEFAULTS});
+    const[touched,setTouched]=useState({});
+    const[revealed,setRevealed]=useState(false);
+    const pd=mb?16:24;
+    const resultsRef=useRef(null);
+
+    const setVal=useCallback((id,v)=>{
+      setVals(prev=>({...prev,[id]:parseInt(v)}));
+      setTouched(prev=>({...prev,[id]:true}));
+    },[]);
+
+    const allTouched=WORDS.every(w=>touched[w.id]);
+    const touchedCount=WORDS.filter(w=>touched[w.id]).length;
+
+    function handleReveal(){
+      setRevealed(true);
+      setTimeout(()=>{
+        if(resultsRef.current) resultsRef.current.scrollIntoView({behavior:"smooth",block:"start"});
+      },100);
+    }
+
+    // Verdict based on disagreement
+    function getVerdict(){
+      let outside=0;
+      WORDS.forEach(w=>{
+        let outsideAny=false;
+        SCALES.forEach(s=>{
+          const range=s.data[w.id];
+          if(range && (vals[w.id]<range[0] || vals[w.id]>range[1])) outsideAny=true;
+        });
+        if(outsideAny) outside++;
+      });
+      if(outside<=1) return "Your answers aligned closely with the official scales. Most people\u2019s don\u2019t. But look at the colored bars: the scales themselves don\u2019t agree with each other. Even if you match one standard perfectly, you\u2019re out of bounds on another.";
+      if(outside<=3) return "Several of your answers landed outside at least one official scale. You\u2019re not wrong. The problem is that the scales don\u2019t agree with each other, and research shows that most people interpret these words outside their officially defined ranges even when shown the definitions.";
+      if(outside<=5) return "Most of your answers fell outside at least one official standard. This is typical. In studies conducted by NATO research group SAS-114, the majority of people interpreted probability words outside their officially defined ranges, even when they were shown the definitions. The words do not carry the meaning we assume they do.";
+      return "Nearly all of your answers fell outside at least one official scale. This is the norm, not the exception. You just experienced what the research has been showing for decades: these words fail at their one job.";
+    }
+
+    return h('div',{style:{minHeight:"100vh",background:C.bg,color:C.text}},
+      h(Header,{isMobile:mb}),
+
+      // ======== ACT 1: THE LESSON ========
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
+        h(SLabel,{n:"1",label:"The Lesson",color:C.danger}),
+        h('h1',{style:{fontFamily:serif,fontSize:mb?26:36,fontWeight:700,lineHeight:1.2,marginBottom:24,maxWidth:700}},
+          "Can You Beat a CIA Officer?"),
+        h('div',{style:{maxWidth:680,fontFamily:serif,fontSize:mb?15:16,lineHeight:1.75,color:C.textMuted}},
+          h('p',{style:{marginBottom:16}},
+            "In 1951, a National Intelligence Estimate described a Soviet attack on Yugoslavia as a \u201Cserious possibility.\u201D When Sherman Kent, the father of intelligence analysis, asked his fellow CIA officers what probability they had in mind, their answers ranged from 20% to 80%. Same words, same document, same team. Four-to-one disagreement on the odds."),
+          h('p',null,
+            "Kent spent more than a decade trying to fix this. He built a chart mapping words to numbers. NATO, the US, and the UK each built their own versions. None of them agree with each other. Below, you\u2019ll assign your own probabilities to seven common words, and then see how your answers compare to all four official scales. The differences may surprise you."))),
+
+      // ======== ACT 2: THE TOOL ========
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
+        h(SLabel,{n:"2",label:revealed?"The Results":"The Challenge"}),
+
+        !revealed
+          // === INPUT PHASE ===
+          ? h('div',null,
+              h('div',{style:{fontFamily:serif,fontSize:mb?14:15,color:C.textMuted,marginBottom:8,maxWidth:680}},
+                "For each word, drag the slider to the probability you think it represents. Don\u2019t overthink it. Your gut reaction is the point."),
+              h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim,marginBottom:24}},
+                touchedCount+" of "+WORDS.length+" answered"),
+              ...WORDS.map(w=>{
+                const isTouched=touched[w.id];
+                return h('div',{key:w.id,style:{
+                  background:C.bgCard,
+                  border:"1px solid "+(isTouched?C.accent+"44":C.border),
+                  borderRadius:8,padding:mb?"14px":"16px 20px",marginBottom:12,
+                  transition:"border-color 0.2s"
+                }},
+                  h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+                    h('div',{style:{fontFamily:mono,fontSize:mb?13:14,fontWeight:600,color:C.text}},"\u201C"+w.label+"\u201D"),
+                    h('div',{style:{fontFamily:mono,fontSize:mb?16:18,fontWeight:700,color:isTouched?C.accent:C.textDim,minWidth:48,textAlign:"right"}},
+                      isTouched?vals[w.id]+"%":"\u2014")),
+                  h('input',{
+                    type:"range",min:0,max:100,value:vals[w.id],
+                    className:isTouched?"":"untouched",
+                    onChange:e=>setVal(w.id,e.target.value),
+                    style:{width:"100%"}
+                  }),
+                  h('div',{style:{display:"flex",justifyContent:"space-between",fontFamily:mono,fontSize:8,color:C.textDim,marginTop:4}},
+                    h('span',null,"0%"),h('span',null,"50%"),h('span',null,"100%")));
+              }),
+              h('div',{style:{textAlign:"center",marginTop:24}},
+                h('button',{
+                  onClick:allTouched?handleReveal:null,
+                  disabled:!allTouched,
+                  style:{
+                    padding:mb?"14px 32px":"14px 40px",
+                    background:allTouched?C.accent:C.borderLight,
+                    color:allTouched?"#000":C.textDim,
+                    border:"none",borderRadius:8,
+                    fontSize:mb?14:15,fontWeight:700,cursor:allTouched?"pointer":"not-allowed",
+                    letterSpacing:"0.03em",
+                    boxShadow:allTouched?"0 0 24px rgba(245,158,11,0.3)":"none",
+                    transition:"all 0.3s"
+                  }
+                },allTouched?"Reveal the Research":"Answer All 7 to Continue")))
+
+          // === RESULTS PHASE ===
+          : h('div',{ref:resultsRef},
+              // Kent 1951 anecdote
+              h(KentAnecdote,{isMobile:mb}),
+
+              // Per-word comparison
+              h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"14px":"20px 24px",marginBottom:24}},
+                h('div',{style:{fontFamily:mono,fontSize:mb?11:12,fontWeight:600,color:C.accent,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:16}},"Your Answers vs. Four Official Scales"),
+                h(Legend,{isMobile:mb}),
+                ...WORDS.map((w,i)=>h(ResultRow,{key:w.id,word:w,userVal:vals[w.id],isMobile:mb,delay:i*60})),
+                h('div',{style:{background:C.accent+"0D",border:"1px solid "+C.accent+"22",borderRadius:6,padding:"10px 14px",marginTop:8,fontFamily:mono,fontSize:mb?10:11,color:C.textDim,lineHeight:1.5}},
+                  h('span',{style:{color:C.accent,fontWeight:600}},"Note on \u201CPossible.\u201D "),
+                  "Kent argued this word should carry no numeric probability at all. It should signal that something is neither certain nor impossible, without quoting odds. The UK is the only major standard that assigns it a range (40\u201350%). The US and NATO leave it out entirely. If you assigned a number to it, you\u2019re in good company, but Kent would have objected.")),
+
+              // Verdict
+              h('div',{className:"fade-in",style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"14px":"16px 20px",marginBottom:24,animationDelay:"400ms"}},
+                h('div',{style:{fontFamily:mono,fontSize:mb?11:12,fontWeight:600,color:C.text,marginBottom:8}},"Your Result"),
+                h('div',{style:{fontFamily:serif,fontSize:mb?14:15,color:C.textMuted,lineHeight:1.6}},getVerdict())),
+
+              // === CONFLICTS SECTION ===
+              h(ConflictsSection,{isMobile:mb}),
+
+              // Try again
+              h('div',{style:{textAlign:"center",marginTop:16,marginBottom:16}},
+                h('button',{onClick:()=>{setRevealed(false);setVals({...DEFAULTS});setTouched({});},style:{
+                  padding:"10px 24px",background:"transparent",color:C.accent,border:"1px solid "+C.accent,
+                  borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",letterSpacing:"0.03em"
+                }},"Try Again")))),
+
+      // ======== ACT 3: THE TAKEAWAY ========
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
+        h(SLabel,{n:"3",label:"The Takeaway",color:C.success}),
+        h('div',{style:{maxWidth:680,fontFamily:serif,fontSize:mb?15:16,lineHeight:1.75,color:C.textMuted}},
+          h('p',{style:{marginBottom:16}},
+            "This problem is not confined to intelligence agencies. It is sitting in every risk register, every audit finding, and every boardroom presentation that uses words like \u201Clikely\u201D or \u201Cpossible\u201D without a number behind them."),
+          h('p',{style:{marginBottom:16}},
+            "Picture a room full of smart people reviewing a risk assessment. The analyst presents a finding: a critical data breach is \u201Cunlikely.\u201D Everyone nods. The meeting ends. Consensus reached, or so it seems."),
+          h('p',{style:{marginBottom:16}},
+            "But if you had stopped the meeting and asked each person to write down what probability they heard, you would get answers ranging from 10% to 40%. That is not a rounding error. A 10% annual probability and a 40% annual probability lead to completely different decisions about how much to spend on controls, whether to accept the risk, or whether to escalate it to the board. The word \u201Cunlikely\u201D created the illusion of agreement where none existed. Everyone walked away thinking the group was aligned, carrying fundamentally different understandings of the risk in their heads."),
+          h('p',null,
+            "The fix is straightforward: use numbers. Not because numbers are perfectly precise (they carry their own uncertainty), but because a number means the same thing to everyone who reads it. \u201CThere is a 15% chance this occurs in the next 12 months\u201D leaves no room for interpretation. That is what quantitative risk analysis is for, and that is what this book teaches you how to do.")),
+
+        // False consensus callout box
+        h('div',{style:{background:C.success+"0D",border:"1px solid "+C.success+"33",borderRadius:8,padding:mb?"14px":"16px 20px",marginTop:24,marginBottom:32,maxWidth:680}},
+          h('div',{style:{fontFamily:mono,fontSize:mb?11:12,fontWeight:700,color:C.success,marginBottom:8}},
+            "THE FALSE CONSENSUS TRAP"),
+          h('div',{style:{fontFamily:serif,fontSize:mb?14:15,color:C.textMuted,lineHeight:1.6}},
+            "Vague words do not just fail to communicate. They create the dangerous illusion that communication happened. A room full of people can nod at the word \u201Cunlikely\u201D and leave with wildly different numbers in their heads, each one confident the group agreed. The most expensive miscommunications are not the ones you catch. They are the ones where everyone walks away thinking they understood each other.")),
+
+        h('div',{style:{display:"flex",gap:12,marginTop:32,flexWrap:"wrap",fontFamily:mono,fontSize:12}},
+          h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:{padding:"10px 20px",borderRadius:6,background:C.accent,color:"#000",fontWeight:600,textDecoration:"none",letterSpacing:"0.03em"}},"Order the Book"),
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{padding:"10px 20px",borderRadius:6,background:"transparent",color:C.accent,border:"1px solid "+C.accent,textDecoration:"none",letterSpacing:"0.03em"}},"Book Site"),
+          h('a',{href:"https://www.heatmapstohistograms.com/newsletter",style:{padding:"10px 20px",borderRadius:6,background:"transparent",color:C.accent,border:"1px solid "+C.accent,textDecoration:"none",letterSpacing:"0.03em"}},"Newsletter"))),
+
+      // Disclaimer / Sources
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:"32px "+pd+"px 0"}},
+        h('div',{style:{background:C.accent+"08",border:"1px solid "+C.accent+"22",borderRadius:8,padding:"14px 18px",fontFamily:mono,fontSize:11,color:C.textDim,lineHeight:1.6}},
+          h('span',{style:{color:C.accent,fontWeight:600}},"SOURCES. "),
+          "Kent, S. (1964). \u201CWords of Estimative Probability.\u201D Studies in Intelligence, 8(4), 49\u201365. ",
+          "NATO (2016). Allied Joint Doctrine for Intelligence Procedures, AJP-2.1. ",
+          "ODNI (2015). Intelligence Community Directive 203: Analytic Standards. ",
+          "UK Defence Intelligence. PHIA Probability Yardstick. ",
+          "Mandel, D. R. (2019). \u201CAssessing and Communicating Uncertainty Effectively in a Rapidly Changing World.\u201D STO-MP-SAS-OCS-ORA-2019, NATO S&T Organization. ",
+          "Budescu, D. V., Por, H., & Broomell, S. B. (2012). \u201CEffective communication of uncertainty in the IPCC reports.\u201D Climatic Change, 113(2), 181\u2013200.")),
+
+      h(Footer,{isMobile:mb}));
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+  </script>
+</body>
+</html>
