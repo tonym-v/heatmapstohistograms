@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Heat Map → Histogram: Interactive Cyber Risk Quantification Tool</title>
+  <meta name="description" content="See what your risk heat map is hiding. Place risks on a 5×5 matrix, replace the labels with real numbers, and run 10,000 Monte Carlo simulations to get actual loss distributions. A companion tool for From Heatmaps to Histograms by Tony Martin-Vegue." />
+  <meta name="author" content="Tony Martin-Vegue" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://www.heatmapstohistograms.com/tools/heatmap-to-histogram" />
+
+  <!-- Open Graph (LinkedIn, Facebook, etc.) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Heat Map → Histogram: See What Your Risk Matrix Is Hiding" />
+  <meta property="og:description" content="Place risks on a heat map, add real numbers, run 10,000 simulations, and see the difference. An interactive companion tool for From Heatmaps to Histograms." />
+  <meta property="og:url" content="https://www.heatmapstohistograms.com/tools/heatmap-to-histogram" />
+  <!-- Replace with your actual OG image URL -->
+  <meta property="og:image" content="https://www.heatmapstohistograms.com/tools/og-heatmap-to-histogram.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:site_name" content="From Heatmaps to Histograms" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Heat Map → Histogram: See What Your Risk Matrix Is Hiding" />
+  <meta name="twitter:description" content="Place risks on a heat map, add real numbers, run 10,000 simulations. Interactive CRQ tool by Tony Martin-Vegue." />
+  <meta name="twitter:image" content="https://www.heatmapstohistograms.com/tools/og-heatmap-to-histogram.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0B1120; font-family: 'Source Serif 4', Georgia, serif; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+    ::selection { background: #F59E0B; color: #000; }
+    a:hover { opacity: 0.85; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script>
+  'use strict';
+  const { useState, useCallback, useEffect, useRef, createElement: h, Fragment } = React;
+
+  const C = {
+    bg:"#0B1120",bgCard:"#111827",border:"#1E293B",borderLight:"#334155",
+    text:"#E2E8F0",textMuted:"#94A3B8",textDim:"#64748B",
+    accent:"#F59E0B",accentGlow:"rgba(245,158,11,0.15)",
+    danger:"#EF4444",dangerMuted:"rgba(239,68,68,0.2)",success:"#10B981",
+  };
+  const RC = ["#F59E0B","#3B82F6","#10B981","#A855F7","#F97316"];
+  const HC = [
+    ["#166534","#166534","#854D0E","#854D0E","#C2410C"],
+    ["#166534","#854D0E","#854D0E","#C2410C","#C2410C"],
+    ["#854D0E","#854D0E","#C2410C","#C2410C","#DC2626"],
+    ["#854D0E","#C2410C","#C2410C","#DC2626","#DC2626"],
+    ["#C2410C","#C2410C","#DC2626","#DC2626","#991B1B"],
+  ];
+  const HL = {
+    lk:["Rare","Unlikely","Possible","Likely","Almost Certain"],
+    lkS:["Rare","Unlik.","Poss.","Likely","A.Cert."],
+    im:["Negligible","Minor","Moderate","Major","Severe"],
+    imS:["Negl.","Minor","Mod.","Major","Severe"],
+  };
+  const MAX = 5;
+  const mono = "'IBM Plex Mono', monospace";
+  const serif = "'Source Serif 4', Georgia, serif";
+
+  function useIsMobile(bp) {
+    const [m,setM] = useState(false);
+    useEffect(() => { const c=()=>setM(window.innerWidth<(bp||768)); c(); window.addEventListener("resize",c); return ()=>window.removeEventListener("resize",c); },[bp]);
+    return m;
+  }
+
+  // Monte Carlo
+  function pert(min,mode,max) {
+    if(min>=max) return mode;
+    const r=max-min, a=1+4*(mode-min)/r, b=1+4*(max-mode)/r;
+    let u,v,s,att=0;
+    do { u=Math.random();v=Math.random();s=Math.pow(u,1/a)+Math.pow(v,1/b);if(++att>1000)return mode; } while(s>1||s===0);
+    return min+(Math.pow(u,1/a)/s)*r;
+  }
+  function poisson(lam) {
+    if(lam<=0)return 0;
+    if(lam<30){const L=Math.exp(-lam);let k=0,p=1;do{k++;p*=Math.random();}while(p>L);return k-1;}
+    const u1=Math.random(),u2=Math.random(),z=Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
+    return Math.max(0,Math.round(lam+Math.sqrt(lam)*z));
+  }
+  function sim1(risk,n){
+    const r=[];
+    for(let i=0;i<n;i++){let loss=0;const fr=pert(risk.freqMin,risk.freqMode,risk.freqMax),ev=poisson(Math.max(0,fr));for(let e=0;e<ev;e++)loss+=pert(risk.magMin,risk.magMode,risk.magMax);r.push(loss);}
+    return r.sort((a,b)=>a-b);
+  }
+  function pct(s,p){return s[Math.min(Math.floor(s.length*p),s.length-1)];}
+  function fmt(n){if(n>=1e6)return "$"+(n/1e6).toFixed(1)+"M";if(n>=1e3)return "$"+(n/1e3).toFixed(0)+"K";return "$"+n.toFixed(0);}
+  function defRanges(row,col){
+    const f=[{freqMin:.05,freqMode:.1,freqMax:.3},{freqMin:.1,freqMode:.4,freqMax:1},{freqMin:.5,freqMode:1.5,freqMax:3},{freqMin:1,freqMode:3,freqMax:8},{freqMin:3,freqMode:8,freqMax:20}];
+    const m=[{magMin:5e3,magMode:15e3,magMax:5e4},{magMin:25e3,magMode:1e5,magMax:3e5},{magMin:1e5,magMode:5e5,magMax:15e5},{magMin:5e5,magMode:2e6,magMax:7e6},{magMin:2e6,magMode:8e6,magMax:25e6}];
+    return Object.assign({},f[row],m[col]);
+  }
+
+  // Components
+  function Header({isMobile:mb}) {
+    return h('div',{style:{borderBottom:"1px solid "+C.border,padding:mb?"12px 0":"16px 0"}},
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"0 16px":"0 24px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}},
+        h('div',null,
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{textDecoration:"none"}},
+            h('div',{style:{fontFamily:mono,fontSize:mb?10:11,letterSpacing:"0.15em",color:C.accent,textTransform:"uppercase",marginBottom:2}},"From Heatmaps to Histograms")
+          ),
+          h('div',{style:{fontFamily:mono,fontSize:mb?10:11,color:C.textDim}},"\u00B7 Interactive Tools \u00B7 Tony Martin-Vegue")
+        ),
+        !mb && h('div',{style:{display:"flex",gap:20,fontFamily:mono,fontSize:11,color:C.textDim}},
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Book"),
+          h('a',{href:"https://www.heatmapstohistograms.com/newsletter",style:{color:C.textDim,textDecoration:"none"}},"Newsletter"),
+          h('a',{href:"https://www.95risk.com",style:{color:C.textDim,textDecoration:"none"}},"95 Risk Advisory")
+        )
+      )
+    );
+  }
+
+  function Footer({isMobile:mb}) {
+    const ls={color:C.textMuted,textDecoration:"none"};
+    return h('div',{style:{borderTop:"1px solid "+C.border,padding:"28px 0",marginTop:64}},
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"0 16px":"0 24px",display:"flex",flexDirection:mb?"column":"row",justifyContent:"space-between",alignItems:mb?"center":"flex-start",gap:mb?16:0}},
+        h('div',{style:{textAlign:mb?"center":"left"}},
+          h('div',{style:{fontFamily:mono,fontSize:11,color:C.accent,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}},"From Heatmaps to Histograms"),
+          h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim}},"Tony Martin-Vegue \u00B7 Apress")
+        ),
+        h('div',{style:{display:"flex",gap:mb?20:24,fontFamily:mono,fontSize:11}},
+          h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:ls},"Order"),
+          h('a',{href:"https://www.heatmapstohistograms.com/newsletter",style:ls},"Newsletter"),
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:ls},"Book Site"),
+          h('a',{href:"https://www.95risk.com",style:ls},"Consulting")
+        )
+      )
+    );
+  }
+
+  function SLabel({n,label,color}) {
+    return h('div',{style:{display:"flex",alignItems:"center",gap:12,marginBottom:20}},
+      h('div',{style:{width:32,height:32,borderRadius:"50%",background:color||C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:mono,fontSize:14,fontWeight:700,color:"#000",flexShrink:0}},n),
+      h('div',{style:{fontFamily:mono,fontSize:12,letterSpacing:"0.1em",textTransform:"uppercase",color:C.textMuted}},label)
+    );
+  }
+
+  function MiniHist({data,color,isMobile:mb}) {
+    const ref=useRef(null);
+    const [w,setW]=useState(300);
+    useEffect(()=>{if(!ref.current)return;const o=new ResizeObserver(e=>{for(const x of e)setW(x.contentRect.width);});o.observe(ref.current);return()=>o.disconnect();},[]);
+    const ht=mb?120:140, nb=mb?25:40, sorted=data;
+    const nz=sorted.filter(v=>v>0), zc=sorted.length-nz.length, zp=((zc/sorted.length)*100).toFixed(0);
+    if(nz.length<10) return h('div',{ref,style:{width:"100%",height:ht,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4}},
+      h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim}},zp+"% of simulated years had no loss events."),
+      h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim}},"(Low frequency risk \u2014 this is expected.)")
+    );
+    const mn=nz[0],mx=nz[nz.length-1];if(mn===mx)return null;
+    const bw=(mx-mn)/nb,bins=Array.from({length:nb},(_,i)=>({s:mn+i*bw,e:mn+(i+1)*bw,c:0}));
+    for(const v of nz)bins[Math.min(Math.floor((v-mn)/bw),nb-1)].c++;
+    const mc=Math.max(...bins.map(b=>b.c)),p90=pct(sorted,.9);
+    const mg={top:22,right:8,bottom:28,left:8},pw=w-mg.left-mg.right,ph=ht-mg.top-mg.bottom,barW=pw/nb,rng=mx-mn;
+    const toX=v=>mg.left+((v-mn)/rng)*pw, fs=mb?8:9;
+    return h('div',{ref,style:{width:"100%"}},
+      h('svg',{width:w,height:ht,style:{display:"block"}},
+        ...bins.map((bin,i)=>{const bh=mc>0?(bin.c/mc)*ph:0;return h('rect',{key:i,x:mg.left+i*barW,y:mg.top+ph-bh,width:Math.max(barW-1,1),height:bh,fill:color,opacity:.75,rx:1});}),
+        p90>0&&p90>=mn&&p90<=mx&&h('g',null,
+          h('line',{x1:toX(p90),y1:mg.top,x2:toX(p90),y2:mg.top+ph,stroke:color,strokeWidth:1.5,strokeDasharray:"3,2"}),
+          h('text',{x:toX(p90),y:mg.top-6,fill:color,fontSize:fs,textAnchor:"middle",fontFamily:mono},"90th: "+fmt(p90))
+        ),
+        h('text',{x:mg.left,y:ht-6,fill:C.textDim,fontSize:fs,fontFamily:mono},fmt(mn)),
+        h('text',{x:w-mg.right,y:ht-6,fill:C.textDim,fontSize:fs,fontFamily:mono,textAnchor:"end"},fmt(mx))
+      ),
+      zc>0&&h('div',{style:{fontFamily:mono,fontSize:9,color:C.textDim,textAlign:"center",marginTop:2}},zp+"% of years: no loss events (not shown)")
+    );
+  }
+
+  function HeatMap({risks,onToggle,isMobile:mb}) {
+    const cs=mb?48:56,gap=3,lkL=mb?HL.lkS:HL.lk,imL=mb?HL.imS:HL.im,lw=mb?52:80;
+    const hdrCols=lw+"px repeat(5, "+cs+"px)";
+    return h('div',{style:{overflowX:"auto"}},
+      h('div',{style:{display:"grid",gridTemplateColumns:hdrCols,gap:gap+"px",marginBottom:gap}},
+        h('div'),
+        ...imL.map((l,i)=>h('div',{key:i,style:{textAlign:"center",fontSize:mb?9:10,color:C.textDim,fontFamily:mono,display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:4}},l))
+      ),
+      h('div',{style:{display:"grid",gridTemplateColumns:hdrCols,gridAutoRows:cs+"px",gap:gap+"px"}},
+        ...[...lkL].reverse().flatMap((rl,ri)=>{
+          const ar=4-ri;
+          return [
+            h('div',{key:"l-"+ri,style:{display:"flex",alignItems:"center",justifyContent:"flex-end",paddingRight:8,fontSize:mb?9:10,color:C.textDim,fontFamily:mono}},rl),
+            ...imL.map((_,ci)=>{
+              const ck=ar+"-"+ci,ri2=risks.findIndex(r=>r.heatCell===ck),ia=ri2>=0,am=risks.length>=MAX&&!ia;
+              return h('div',{key:"c-"+ar+"-"+ci,onClick:()=>onToggle(ar,ci),style:{
+                background:HC[ar][ci],opacity:ia?1:am?.2:.35,borderRadius:4,cursor:am?"not-allowed":"pointer",
+                display:"flex",alignItems:"center",justifyContent:"center",
+                border:ia?"2px solid "+RC[ri2]:"2px solid transparent",transition:"all 0.15s ease",
+              }},
+                ia&&h('div',{style:{width:24,height:24,borderRadius:"50%",background:RC[ri2],display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#000",fontFamily:mono}},ri2+1)
+              );
+            })
+          ];
+        })
+      ),
+      h('div',{style:{display:"flex",justifyContent:"space-between",marginTop:8,marginLeft:lw+gap,width:cs*5+gap*4}},
+        h('div',{style:{fontSize:9,color:C.textDim,fontFamily:mono}},"\u2191 Likelihood"),
+        h('div',{style:{fontSize:9,color:C.textDim,fontFamily:mono}},"Impact \u2192")
+      )
+    );
+  }
+
+  function InfoLost() {
+    const ps=["Every risk in the same cell is treated as identical, but they aren't.","You can't tell the difference between a $50K loss and a $5M loss if they share a column.","\"Likely\" means something different to every person in the room.","There's no math you can do with this. You can't aggregate, compare, or compute ROI."];
+    return h('div',{style:{background:C.dangerMuted,border:"1px solid "+C.danger+"33",borderRadius:8,padding:16,marginTop:16}},
+      h('div',{style:{fontFamily:mono,fontSize:12,color:C.danger,fontWeight:600,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.05em"}},"Information Lost"),
+      ...ps.map((p,i)=>h('div',{key:i,style:{fontSize:13,color:C.text,lineHeight:1.5,fontFamily:serif,marginBottom:4,paddingLeft:12,borderLeft:"2px solid "+C.danger+"44"}},p))
+    );
+  }
+
+  function RangeIn({label,min,mode,max,onChange,isMobile:mb}) {
+    const fields=[{k:"min",l:"Min",v:min},{k:"mode",l:"Most Likely",v:mode},{k:"max",l:"Max",v:max}];
+    return h('div',{style:{marginBottom:12}},
+      h('div',{style:{fontSize:11,color:C.textMuted,fontFamily:mono,marginBottom:6}},label),
+      h('div',{style:{display:"flex",gap:8}},
+        ...fields.map(({k,l,v})=>h('div',{key:k,style:{flex:1}},
+          h('div',{style:{fontSize:9,color:C.textDim,fontFamily:mono,marginBottom:3}},l),
+          h('input',{type:"number",value:v,onChange:e=>onChange(k,parseFloat(e.target.value)||0),style:{
+            width:"100%",padding:mb?"8px 6px":"6px 8px",background:C.bg,border:"1px solid "+C.borderLight,
+            borderRadius:4,color:C.text,fontSize:mb?14:13,fontFamily:mono,outline:"none",boxSizing:"border-box",
+          }})
+        ))
+      )
+    );
+  }
+
+  function RiskForm({risk,index:i,onChange,onRemove,isMobile:mb}) {
+    const row=+risk.heatCell.split("-")[0],col=+risk.heatCell.split("-")[1],color=RC[i];
+    return h('div',{style:{background:C.bgCard,border:"1px solid "+color+"33",borderRadius:8,padding:16,marginBottom:12,borderLeft:"3px solid "+color}},
+      h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}},
+        h('div',{style:{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}},
+          h('div',{style:{width:24,height:24,borderRadius:"50%",background:color,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#000",fontFamily:mono}},i+1),
+          h('input',{value:risk.name,onChange:e=>onChange(i,"name",e.target.value),placeholder:"Risk "+(i+1),style:{
+            background:"transparent",border:"none",borderBottom:"1px solid "+C.borderLight,color,fontSize:14,fontWeight:600,padding:"2px 0",fontFamily:mono,outline:"none",width:"100%",minWidth:0,
+          }})
+        ),
+        h('div',{style:{display:"flex",alignItems:"center",gap:12,flexShrink:0}},
+          h('div',{style:{fontSize:10,color:C.textDim,fontFamily:mono}},HL.lk[row]+" / "+HL.im[col]),
+          h('button',{onClick:()=>onRemove(i),style:{background:"transparent",border:"1px solid "+C.danger+"44",color:C.danger,borderRadius:4,padding:"2px 8px",fontSize:10,cursor:"pointer",fontFamily:mono}},"\u2715")
+        )
+      ),
+      h(RangeIn,{label:"Frequency (events per year)",isMobile:mb,min:risk.freqMin,mode:risk.freqMode,max:risk.freqMax,
+        onChange:(k,v)=>onChange(i,"freq"+k.charAt(0).toUpperCase()+k.slice(1),v)}),
+      h(RangeIn,{label:"Loss magnitude per event ($)",isMobile:mb,min:risk.magMin,mode:risk.magMode,max:risk.magMax,
+        onChange:(k,v)=>onChange(i,"mag"+k.charAt(0).toUpperCase()+k.slice(1),v)})
+    );
+  }
+
+  function ResultCard({risk,index:i,simData,isMobile:mb}) {
+    const color=RC[i],row=+risk.heatCell.split("-")[0],col=+risk.heatCell.split("-")[1];
+    const p50=pct(simData,.5),p90=pct(simData,.9),mean=simData.reduce((a,b)=>a+b,0)/simData.length;
+    const name=risk.name||"Risk "+(i+1),hl=HL.lk[row]+" / "+HL.im[col];
+    const zeroYears=simData.filter(v=>v===0).length,zeroPct=((zeroYears/simData.length)*100).toFixed(0);
+    const fmtStat=v=>v===0?"No loss":fmt(v);
+    return h('div',{style:{background:C.bgCard,border:"1px solid "+color+"33",borderRadius:8,overflow:"hidden",borderLeft:"3px solid "+color}},
+      // Title
+      h('div',{style:{padding:"12px 16px 8px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:4}},
+        h('div',{style:{display:"flex",alignItems:"center",gap:8}},
+          h('div',{style:{width:22,height:22,borderRadius:"50%",background:color,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#000",fontFamily:mono}},i+1),
+          h('div',{style:{fontFamily:mono,fontSize:13,fontWeight:600,color:C.text}},name)
+        ),
+        h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,background:C.dangerMuted,padding:"3px 8px",borderRadius:4,border:"1px solid "+C.danger+"22"}},
+          "On the heat map: ",h('span',{style:{color:C.danger}},hl)
+        )
+      ),
+      // Zero-year callout
+      zeroYears>0&&h('div',{style:{padding:"6px 16px",background:C.bg,fontFamily:mono,fontSize:10,color:C.textDim,borderBottom:"1px solid "+C.border}},
+        zeroPct+"% of simulated years had no loss events \u2014 this risk doesn\u2019t hit every year."
+      ),
+      // Stats
+      h('div',{style:{display:"flex",gap:0,padding:"0 16px 10px",borderBottom:"1px solid "+C.border}},
+        [{l:"Median (P50)",v:p50},{l:"Expected",v:mean},{l:"Bad Year (P90)",v:p90}].map(({l,v},si)=>
+          h('div',{key:l,style:{flex:1,textAlign:"center",borderRight:si<2?"1px solid "+C.border:"none",padding:"4px 0"}},
+            h('div',{style:{fontSize:9,color:C.textDim,fontFamily:mono,marginBottom:2}},l),
+            h('div',{style:{fontSize:mb?13:15,color:si===2?color:C.text,fontWeight:700,fontFamily:mono}},fmtStat(v))
+          )
+        )
+      ),
+      // Histogram
+      h('div',{style:{padding:"8px 12px"}},h(MiniHist,{data:simData,color,isMobile:mb}))
+    );
+  }
+
+  function Disclaimer() {
+    return h('div',{style:{maxWidth:1100,margin:"0 auto",padding:"32px 24px 0"}},
+      h('div',{style:{background:C.accent+"08",border:"1px solid "+C.accent+"22",borderRadius:8,padding:"14px 18px",fontFamily:mono,fontSize:11,color:C.textDim,lineHeight:1.6}},
+        h('span',{style:{color:C.accent,fontWeight:600}},"A NOTE ON THIS TOOL. "),
+        "This is a learning demo designed to illustrate the concept, not a production risk model. The pre-loaded numbers are illustrative starting points, not industry benchmarks. Each risk is simulated independently \u2014 in the real world, losses can be correlated (a bad year for one risk is often a bad year for others). For real-world analysis, you\u2019ll want a proper modeling tool, better data, and probably a coffee. That said, if playing with this made you rethink your heat map, we\u2019ll call that a win."
+      )
+    );
+  }
+
+  // Main App
+  function App() {
+    const mb = useIsMobile();
+    const [risks,setRisks] = useState([]);
+    const [simRes,setSimRes] = useState(null);
+    const [hasRun,setHasRun] = useState(false);
+
+    const toggle = useCallback((row,col) => {
+      const ck=row+"-"+col;
+      setRisks(p=>{const ex=p.findIndex(r=>r.heatCell===ck);if(ex>=0)return p.filter((_,i)=>i!==ex);if(p.length>=MAX)return p;return[...p,{heatCell:ck,name:"",...defRanges(row,col)}];});
+      setSimRes(null);setHasRun(false);
+    },[]);
+
+    const update = useCallback((i,f,v) => {
+      setRisks(p=>{const n=[...p];n[i]={...n[i],[f]:v};return n;});
+      setSimRes(null);setHasRun(false);
+    },[]);
+
+    const remove = useCallback(i => {
+      setRisks(p=>p.filter((_,j)=>j!==i));
+      setSimRes(null);setHasRun(false);
+    },[]);
+
+    const run = useCallback(() => {
+      if(!risks.length)return;
+      setSimRes(risks.map(r=>sim1(r,10000)));
+      setHasRun(true);
+    },[risks]);
+
+    const pd=mb?16:24;
+
+    return h('div',{style:{minHeight:"100vh",background:C.bg,color:C.text}},
+      h(Header,{isMobile:mb}),
+
+      // ACT 1
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
+        h(SLabel,{n:"1",label:"The Lesson",color:C.danger}),
+        h('h1',{style:{fontFamily:serif,fontSize:mb?28:36,fontWeight:700,lineHeight:1.2,marginBottom:24,maxWidth:700}},
+          "Heat Map ",h('span',{style:{color:C.danger}},"\u2192")," Histogram"
+        ),
+        h('div',{style:{maxWidth:680,fontFamily:serif,fontSize:mb?15:16,lineHeight:1.75,color:C.textMuted}},
+          h('p',{style:{marginBottom:16}},"If two risks both land in the \u201Cred\u201D zone of a 5\u00D75 matrix, are they equal? One might cost you $200K, the other $20M. The heat map treats them the same. That\u2019s not a minor flaw, it\u2019s a structural one: the format destroys the information you need to make a decision."),
+          h('p',null,"A histogram built from a Monte Carlo simulation preserves what the heat map throws away: the full range of outcomes, where the weight of probability sits, and what a bad year looks like in dollars. Below, you\u2019ll place up to five risks on a heat map, replace the labels with actual numbers, and see what you\u2019ve been missing.")
+        )
+      ),
+
+      // ACT 2
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
+        h(SLabel,{n:"2",label:"The Tool"}),
+        h('div',{style:{display:mb?"flex":"grid",flexDirection:"column",gridTemplateColumns:mb?"1fr":"1fr 1fr",gap:32,alignItems:"start"}},
+          // Left
+          h('div',null,
+            h('div',{style:{display:"flex",alignItems:"center",gap:8,marginBottom:16}},
+              h('div',{style:{width:10,height:10,borderRadius:2,background:C.danger,flexShrink:0}}),
+              h('div',{style:{fontFamily:mono,fontSize:13,fontWeight:600,color:C.danger,textTransform:"uppercase",letterSpacing:"0.05em"}},"Step 1: Place Your Risks")
+            ),
+            h('div',{style:{fontFamily:serif,fontSize:13,color:C.textDim,marginBottom:16,lineHeight:1.5}},"Click cells to place up to "+MAX+" risks. Click again to remove."),
+            h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?12:20}},
+              h(HeatMap,{risks,onToggle:toggle,isMobile:mb})
+            ),
+            risks.length>=MAX&&h('div',{style:{marginTop:12,padding:"8px 12px",borderRadius:6,background:C.accent+"15",border:"1px solid "+C.accent+"33",fontFamily:mono,fontSize:11,color:C.accent,textAlign:"center"}},"Maximum "+MAX+" risks. Click a numbered cell to remove it."),
+            risks.length>0&&h(InfoLost),
+            risks.length===0&&h('div',{style:{marginTop:16,padding:16,border:"1px dashed "+C.borderLight,borderRadius:8,textAlign:"center",fontFamily:mono,fontSize:12,color:C.textDim}},"Click cells on the heat map to place risks")
+          ),
+          // Right
+          h('div',null,
+            h('div',{style:{display:"flex",alignItems:"center",gap:8,marginBottom:16}},
+              h('div',{style:{width:10,height:10,borderRadius:2,background:C.accent,flexShrink:0}}),
+              h('div',{style:{fontFamily:mono,fontSize:13,fontWeight:600,color:C.accent,textTransform:"uppercase",letterSpacing:"0.05em"}},"Step 2: What Do Those Colors Mean in Numbers?")
+            ),
+            h('div',{style:{fontFamily:serif,fontSize:13,color:C.textDim,marginBottom:16,lineHeight:1.5}},"We took a first pass at translating each cell into frequency and dollar ranges. These are rough starting points based on the cell position \u2014 adjust them to reflect what you think those colors mean for your organization. How many times per year? How much per event? Use min / most likely / max."),
+            risks.length===0
+              ? h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:40,textAlign:"center"}},
+                  h('div',{style:{fontSize:32,marginBottom:8,opacity:.3}},mb?"\u2191":"\u2190"),
+                  h('div',{style:{fontFamily:mono,fontSize:12,color:C.textDim}},"Place risks on the heat map to begin")
+                )
+              : h('div',null,
+                  ...risks.map((r,i)=>h(RiskForm,{key:r.heatCell+"-"+i,risk:r,index:i,onChange:update,onRemove:remove,isMobile:mb})),
+                  h('button',{onClick:run,style:{width:"100%",padding:mb?"16px 24px":"14px 24px",background:C.accent,color:"#000",border:"none",borderRadius:8,cursor:"pointer",fontFamily:mono,fontSize:mb?15:14,fontWeight:700,letterSpacing:"0.03em",textTransform:"uppercase",boxShadow:"0 0 20px "+C.accentGlow}},"Run 10,000 Simulations")
+                )
+          )
+        ),
+
+        // Results
+        hasRun&&simRes&&h('div',{style:{marginTop:48}},
+          h('div',{style:{display:"flex",alignItems:"center",gap:8,marginBottom:24}},
+            h('div',{style:{width:10,height:10,borderRadius:2,background:C.success,flexShrink:0}}),
+            h('div',{style:{fontFamily:mono,fontSize:13,fontWeight:600,color:C.success,textTransform:"uppercase",letterSpacing:"0.05em"}},"Results: What the Heat Map Was Hiding")
+          ),
+          h('div',{style:{display:mb?"flex":"grid",flexDirection:"column",gridTemplateColumns:mb?"1fr":"1fr 1fr",gap:mb?12:32,marginBottom:24}},
+            h('div',{style:{background:C.dangerMuted,border:"1px solid "+C.danger+"33",borderRadius:8,padding:mb?16:24,textAlign:"center"}},
+              h('div',{style:{fontFamily:mono,fontSize:11,color:C.danger,fontWeight:600,marginBottom:12,textTransform:"uppercase",letterSpacing:"0.1em"}},"What the heat map told you"),
+              h('div',{style:{fontFamily:serif,fontSize:mb?16:20,color:C.text,lineHeight:1.4}},
+                risks.length+" colored cell"+(risks.length>1?"s":"")+".",
+                h('br'),h('span',{style:{color:C.textDim,fontSize:mb?14:16}},"No dollar amounts. No ranges. No decision.")
+              )
+            ),
+            h('div',{style:{background:C.accentGlow,border:"1px solid "+C.accent+"33",borderRadius:8,padding:mb?16:24,textAlign:"center"}},
+              h('div',{style:{fontFamily:mono,fontSize:11,color:C.accent,fontWeight:600,marginBottom:12,textTransform:"uppercase",letterSpacing:"0.1em"}},"What the histograms tell you"),
+              h('div',{style:{fontFamily:serif,fontSize:mb?16:20,color:C.text,lineHeight:1.4}},
+                risks.length+" distribution"+(risks.length>1?"s":"")+" with percentiles, ranges, and dollars you can act on."
+              )
+            )
+          ),
+          h('div',{style:{display:"grid",gridTemplateColumns:mb?"1fr":risks.length===1?"1fr":"1fr 1fr",gap:16}},
+            ...risks.map((r,i)=>h(ResultCard,{key:r.heatCell+"-"+i,risk:r,index:i,simData:simRes[i],isMobile:mb}))
+          )
+        )
+      ),
+
+      // ACT 3
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
+        h(SLabel,{n:"3",label:"The Takeaway",color:C.success}),
+        h('div',{style:{maxWidth:680,fontFamily:serif,fontSize:mb?15:16,lineHeight:1.75,color:C.textMuted}},
+          h('p',{style:{marginBottom:16}},
+            hasRun
+              ? "You just translated colored cells into distributions expressed in dollars. That\u2019s the core move. The ranges you entered aren\u2019t perfect, and they don\u2019t need to be. A rough range that captures your uncertainty is more honest and more useful than a precise-looking cell on a heat map."
+              : "Once you run the simulation above, you\u2019ll see the gap between what a heat map communicates and what a histogram reveals. That gap isn\u2019t cosmetic. It\u2019s the difference between a risk program that generates reports and one that informs decisions."
+          ),
+          h('p',null,"This is the first concept in ",h('em',null,"From Heatmaps to Histograms: A Practical Guide to Cyber Risk Quantification"),". The book walks through every step from scoping a scenario to communicating results to a board, with the same hands-on approach you experienced here.")
+        ),
+        h('div',{style:{display:"flex",gap:12,marginTop:32,flexWrap:"wrap",fontFamily:mono,fontSize:12}},
+          h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:{padding:"10px 20px",borderRadius:6,background:C.accent,color:"#000",fontWeight:600,textDecoration:"none",letterSpacing:"0.03em"}},"Order the Book"),
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{padding:"10px 20px",borderRadius:6,background:"transparent",color:C.accent,border:"1px solid "+C.accent,textDecoration:"none",letterSpacing:"0.03em"}},"Book Site"),
+          h('a',{href:"https://www.heatmapstohistograms.com/newsletter",style:{padding:"10px 20px",borderRadius:6,background:"transparent",color:C.accent,border:"1px solid "+C.accent,textDecoration:"none",letterSpacing:"0.03em"}},"Newsletter")
+        )
+      ),
+
+      h(Disclaimer),
+      h(Footer,{isMobile:mb})
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+  </script>
+</body>
+</html>
