@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calibration Trainer: Are You as Sure as You Think?</title>
+  <meta name="description" content="Test your calibration with 90% confidence intervals. Most people discover they are far more overconfident than they realize. A companion tool for From Heatmaps to Histograms by Tony Martin-Vegue." />
+  <meta name="author" content="Tony Martin-Vegue" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://www.heatmapstohistograms.com/tools/calibration-trainer" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Calibration Trainer: Are You as Sure as You Think?" />
+  <meta property="og:description" content="Give 90% confidence intervals. Find out you're only right 40% of the time. The most humbling 5 minutes in risk management." />
+  <meta property="og:url" content="https://www.heatmapstohistograms.com/tools/calibration-trainer" />
+  <meta property="og:image" content="https://www.heatmapstohistograms.com/tools/og-calibration-trainer.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:site_name" content="From Heatmaps to Histograms" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Calibration Trainer: Are You as Sure as You Think?" />
+  <meta name="twitter:description" content="Give 90% confidence intervals. Find out how overconfident you really are. Interactive CRQ tool by Tony Martin-Vegue." />
+  <meta name="twitter:image" content="https://www.heatmapstohistograms.com/tools/og-calibration-trainer.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0B1120;font-family:'Source Serif 4',Georgia,serif}
+    ::selection{background:#F59E0B;color:#000}
+    a:hover{opacity:0.85}
+    button{font-family:'IBM Plex Mono',monospace;cursor:pointer}
+    input[type=number],input[type=text]{font-family:'IBM Plex Mono',monospace;background:#0B1120;color:#E2E8F0;border:1px solid #334155;border-radius:4px;padding:8px 10px;font-size:14px;width:100%;outline:none}
+    input[type=number]:focus{border-color:#F59E0B}
+    input[type=number]::-webkit-inner-spin-button{opacity:1}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    .fade-in{animation:fadeIn 0.4s ease-out forwards}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script>
+  'use strict';
+  const {useState,useEffect,useRef,useMemo,createElement:h}=React;
+
+  const C={bg:"#0B1120",bgCard:"#111827",border:"#1E293B",borderLight:"#334155",text:"#E2E8F0",textMuted:"#94A3B8",textDim:"#64748B",accent:"#F59E0B",accentGlow:"rgba(245,158,11,0.15)",danger:"#EF4444",dangerMuted:"rgba(239,68,68,0.1)",success:"#10B981",successMuted:"rgba(16,185,129,0.1)"};
+  const mono="'IBM Plex Mono',monospace";
+  const serif="'Source Serif 4',Georgia,serif";
+
+  function useIsMobile(bp){const[m,setM]=useState(false);useEffect(()=>{const c=()=>setM(window.innerWidth<(bp||768));c();window.addEventListener("resize",c);return()=>window.removeEventListener("resize",c);},[bp]);return m;}
+
+  // ── Question Bank ──
+  // Each question has a known, indisputable numerical answer.
+  // Mix of general knowledge and cyber/tech to keep it interesting.
+  const ALL_QUESTIONS=[
+    {id:"liberty",q:"Height of the Statue of Liberty from the ground to the tip of the torch, including the pedestal, in feet",answer:305,unit:"feet",source:"National Park Service",category:"general"},
+    {id:"moon",q:"Average distance from Earth to the Moon, in thousands of miles",answer:238.9,unit:"K miles",source:"NASA",category:"general"},
+    {id:"bones",q:"Number of bones in the adult human body",answer:206,unit:"bones",source:"Gray's Anatomy",category:"general"},
+    {id:"everest",q:"Height of Mount Everest, in feet",answer:29032,unit:"feet",source:"Survey of Nepal/China 2020",category:"general"},
+    {id:"earth_circ",q:"Circumference of the Earth at the equator, in miles",answer:24901,unit:"miles",source:"NASA",category:"general"},
+    {id:"morris_worm",q:"Year the Morris Worm, the first major internet worm, was released",answer:1988,unit:"",source:"RFC 1135",category:"cyber"},
+    {id:"yahoo",q:"Number of user accounts compromised in the 2013 Yahoo breach, in billions",answer:3,unit:"billion",source:"Verizon acquisition disclosures, 2017",category:"cyber"},
+    {id:"equifax",q:"Number of people affected by the 2017 Equifax breach, in millions",answer:147,unit:"million",source:"FTC settlement, 2019",category:"cyber"},
+    {id:"target",q:"Number of credit/debit card records stolen in the 2013 Target breach, in millions",answer:40,unit:"million",source:"Target Corporation disclosure",category:"cyber"},
+    {id:"solarwinds",q:"Number of organizations that installed the compromised SolarWinds Orion update in 2020",answer:18000,unit:"organizations",source:"SEC filing, SolarWinds Corp.",category:"cyber"},
+    // Additional general knowledge
+    {id:"great_wall",q:"Length of the Great Wall of China including all branches, in miles",answer:13171,unit:"miles",source:"China's State Administration of Cultural Heritage, 2012",category:"general"},
+    {id:"mariana",q:"Depth of the Mariana Trench at its deepest point (Challenger Deep), in feet",answer:35876,unit:"feet",source:"Greenaway et al., Deep-Sea Research Part I, 2021",category:"general"},
+    {id:"amazon_river",q:"Length of the Amazon River, in miles",answer:3976,unit:"miles",source:"Encyclopedia Britannica",category:"general"},
+    {id:"sound",q:"Speed of sound in air at sea level, in miles per hour",answer:767,unit:"mph",source:"NASA",category:"general"},
+    {id:"us_states",q:"Year Alaska and Hawaii became U.S. states (the later of the two)",answer:1959,unit:"",source:"U.S. National Archives",category:"general"},
+    {id:"sun_distance",q:"Average distance from Earth to the Sun, in millions of miles",answer:93,unit:"million miles",source:"NASA",category:"general"},
+    {id:"human_genome",q:"Approximate number of genes in the human genome, in thousands",answer:20,unit:"thousand",source:"Human Genome Project, NIH",category:"general"},
+    {id:"titanic",q:"Number of passengers and crew who died in the sinking of the Titanic",answer:1517,unit:"people",source:"U.S. Senate inquiry, 1912",category:"general"},
+    {id:"pyramids",q:"Height of the Great Pyramid of Giza when originally built, in feet",answer:481,unit:"feet",source:"Encyclopedia Britannica",category:"general"},
+    {id:"marathon",q:"Length of a marathon, in miles (to one decimal place)",answer:26.2,unit:"miles",source:"World Athletics",category:"general"},
+    {id:"gold",q:"Melting point of gold, in degrees Fahrenheit",answer:1947,unit:"\u00B0F",source:"CRC Handbook of Chemistry and Physics",category:"general"},
+    {id:"blood",q:"Total volume of blood in an average adult human body, in liters",answer:5,unit:"liters",source:"American Red Cross",category:"general"},
+    {id:"cheetah",q:"Top speed of a cheetah in miles per hour",answer:70,unit:"mph",source:"National Geographic",category:"general"},
+    // Additional cyber/tech
+    {id:"stuxnet",q:"Year the Stuxnet worm, which targeted Iranian nuclear centrifuges, was discovered",answer:2010,unit:"",source:"Symantec/Ralph Langner analysis",category:"cyber"},
+    {id:"heartbleed",q:"Year the Heartbleed vulnerability in OpenSSL was publicly disclosed",answer:2014,unit:"",source:"CVE-2014-0160",category:"cyber"},
+    {id:"wannacry",q:"Number of computers infected by the WannaCry ransomware attack in 2017, in thousands",answer:230,unit:"thousand",source:"Europol",category:"cyber"},
+    {id:"linkedin",q:"Number of user accounts exposed in the 2012 LinkedIn breach, in millions",answer:165,unit:"million",source:"LinkedIn Corp. disclosure",category:"cyber"},
+    {id:"anthem",q:"Number of patient records stolen in the 2015 Anthem health insurance breach, in millions",answer:78,unit:"million",source:"HHS Office for Civil Rights",category:"cyber"},
+    {id:"avg_breach_cost",q:"Average total cost of a data breach in 2024 according to the IBM/Ponemon report, in millions of dollars",answer:4.88,unit:"$M",source:"IBM Cost of a Data Breach Report, 2024",category:"cyber"},
+    {id:"dwell_time",q:"Median number of days attackers remained undetected in compromised networks in 2023, according to Mandiant",answer:10,unit:"days",source:"Mandiant M-Trends 2024 report",category:"cyber"},
+    // Batch 3: more general knowledge
+    {id:"wright",q:"Year the Wright Brothers made their first powered flight at Kitty Hawk",answer:1903,unit:"",source:"Smithsonian National Air and Space Museum",category:"general"},
+    {id:"water_boil",q:"Boiling point of water at sea level, in degrees Fahrenheit",answer:212,unit:"\u00B0F",source:"NIST",category:"general"},
+    {id:"planets",q:"Average distance from the Sun to Jupiter, in millions of miles",answer:484,unit:"million miles",source:"NASA",category:"general"},
+    {id:"eiffel",q:"Height of the Eiffel Tower to the tip, in feet",answer:1083,unit:"feet",source:"Soci\u00E9t\u00E9 d'Exploitation de la Tour Eiffel",category:"general"},
+    {id:"sahara_temp",q:"Highest temperature ever reliably recorded on Earth (Death Valley, 1913), in degrees Fahrenheit",answer:134,unit:"\u00B0F",source:"World Meteorological Organization",category:"general"},
+    {id:"heart",q:"Average number of times the human heart beats per day, in thousands",answer:100,unit:"thousand",source:"American Heart Association",category:"general"},
+    {id:"dna",q:"Length of DNA in a single human cell if stretched out, in feet",answer:6,unit:"feet",source:"National Human Genome Research Institute",category:"general"},
+    {id:"iss",q:"Orbital altitude of the International Space Station, in miles",answer:254,unit:"miles",source:"NASA",category:"general"},
+    {id:"amazon_founded",q:"Year Amazon.com was founded",answer:1994,unit:"",source:"SEC filings",category:"general"},
+    {id:"un",q:"Number of member states in the United Nations",answer:193,unit:"countries",source:"United Nations",category:"general"},
+    {id:"lightspeed",q:"Speed of light in thousands of miles per second",answer:186,unit:"K mi/s",source:"NIST",category:"general"},
+    {id:"constitution",q:"Year the U.S. Constitution was signed",answer:1787,unit:"",source:"National Archives",category:"general"},
+    {id:"cells",q:"Approximate number of cells in the human body, in trillions",answer:37,unit:"trillion",source:"Annals of Human Biology, 2013",category:"general"},
+    {id:"pacific",q:"Width of the Pacific Ocean at its widest point, from Indonesia to Colombia, in miles",answer:12300,unit:"miles",source:"Encyclopedia Britannica / World Atlas",category:"general"},
+    {id:"nile",q:"Length of the Nile River, in miles",answer:4132,unit:"miles",source:"Encyclopedia Britannica",category:"general"},
+    // Batch 3: more cyber
+    {id:"first_virus",q:"Year the first PC virus (Brain) was created",answer:1986,unit:"",source:"F-Secure",category:"cyber"},
+    {id:"gdpr",q:"Year the EU General Data Protection Regulation (GDPR) took effect",answer:2018,unit:"",source:"Official Journal of the EU",category:"cyber"},
+    {id:"arpanet",q:"Year ARPANET, the precursor to the internet, first transmitted a message",answer:1969,unit:"",source:"DARPA",category:"cyber"},
+    {id:"notpetya",q:"Estimated total economic damage from the 2017 NotPetya cyberattack, in billions of dollars",answer:10,unit:"$B",source:"White House assessment, 2018",category:"cyber"},
+    {id:"colonial",q:"Ransom paid by Colonial Pipeline in the 2021 ransomware attack, in millions of dollars",answer:4.4,unit:"$M",source:"DOJ press release, June 2021",category:"cyber"},
+  ];
+
+  const QUESTIONS_PER_ROUND=10;
+
+  // Track which questions have been seen this session to avoid repeats on retry
+  function shuffle(arr){
+    const a=[...arr];
+    for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+    return a;
+  }
+
+  function pickQuestions(seenSet,excludeIds){
+    let unseen=ALL_QUESTIONS.filter(q=>!seenSet.has(q.id));
+    if(unseen.length<QUESTIONS_PER_ROUND){
+      seenSet.clear();
+      if(excludeIds)excludeIds.forEach(id=>seenSet.add(id));
+      unseen=ALL_QUESTIONS.filter(q=>!seenSet.has(q.id));
+    }
+    const picked=shuffle(unseen).slice(0,QUESTIONS_PER_ROUND);
+    picked.forEach(q=>seenSet.add(q.id));
+    return picked;
+  }
+
+  // ── Shared Components ──
+  function Header({isMobile:mb}){
+    return h('div',{style:{borderBottom:"1px solid "+C.border,padding:mb?"12px 0":"16px 0"}},
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"0 16px":"0 24px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}},
+        h('div',null,
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{textDecoration:"none"}},
+            h('div',{style:{fontFamily:mono,fontSize:mb?10:11,letterSpacing:"0.15em",color:C.accent,textTransform:"uppercase",marginBottom:2}},"From Heatmaps to Histograms")),
+          h('div',{style:{fontFamily:mono,fontSize:mb?10:11,color:C.textDim}},"\u00B7 Interactive Tools \u00B7 Tony Martin-Vegue")),
+        !mb&&h('div',{style:{display:"flex",gap:20,fontFamily:mono,fontSize:11,color:C.textDim}},
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Book"),
+          h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Newsletter"),
+          h('a',{href:"https://www.95risk.com",style:{color:C.textDim,textDecoration:"none"}},"95 Risk Advisory"))));
+  }
+
+  function Footer({isMobile:mb}){
+    const ls={color:C.textMuted,textDecoration:"none"};
+    return h('div',{style:{borderTop:"1px solid "+C.border,padding:"28px 0",marginTop:64}},
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"0 16px":"0 24px",display:"flex",flexDirection:mb?"column":"row",justifyContent:"space-between",alignItems:mb?"center":"flex-start",gap:mb?16:0}},
+        h('div',{style:{textAlign:mb?"center":"left"}},
+          h('div',{style:{fontFamily:mono,fontSize:11,color:C.accent,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}},"From Heatmaps to Histograms"),
+          h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim}},"Tony Martin-Vegue \u00B7 Apress")),
+        h('div',{style:{display:"flex",gap:mb?20:24,fontFamily:mono,fontSize:11}},
+          h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:ls},"Order"),
+          h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:ls},"Newsletter"),
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:ls},"Book Site"),
+          h('a',{href:"https://www.95risk.com",style:ls},"Consulting"))));
+  }
+
+  function SLabel({n,label,color}){
+    return h('div',{style:{display:"flex",alignItems:"center",gap:12,marginBottom:20}},
+      h('div',{style:{width:32,height:32,borderRadius:"50%",background:color||C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:mono,fontSize:14,fontWeight:700,color:"#000",flexShrink:0}},n),
+      h('div',{style:{fontFamily:mono,fontSize:12,letterSpacing:"0.1em",textTransform:"uppercase",color:C.textMuted}},label));
+  }
+
+  function StepHeader({label,color}){
+    return h('div',{style:{display:"flex",alignItems:"center",gap:8,marginBottom:12,marginTop:24}},
+      h('div',{style:{width:10,height:10,borderRadius:2,background:color||C.accent,flexShrink:0}}),
+      h('div',{style:{fontFamily:mono,fontSize:13,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em",color:color||C.accent}},label));
+  }
+
+  function Disclaimer(){
+    return h('div',{style:{maxWidth:1100,margin:"0 auto",padding:"32px 24px 0"}},
+      h('div',{style:{background:C.accent+"08",border:"1px solid "+C.accent+"22",borderRadius:8,padding:"14px 18px",fontFamily:mono,fontSize:11,color:C.textDim,lineHeight:1.6}},
+        h('span',{style:{color:C.accent,fontWeight:600}},"A NOTE ON THIS TOOL. "),
+        "This is a learning demo designed to illustrate calibration, not a rigorous psychometric assessment. Ten questions is enough to reveal a pattern but not enough to produce a precise calibration score. In a formal training program, you would answer 50+ questions across multiple sessions and track improvement over time. The questions here have well-sourced answers, but some values (like river lengths and breach counts) have minor variations across sources. That said, if this exercise made you widen your ranges, the lesson landed."));
+  }
+
+  // ── Format numbers nicely ──
+  function fmt(v){
+    if(v===undefined||v===null||isNaN(v))return"";
+    const a=Math.abs(v);
+    if(a>=1e9)return(v/1e9).toFixed(1)+"B";
+    if(a>=1e6)return(v/1e6).toFixed(1)+"M";
+    if(a>=1e4)return Math.round(v).toLocaleString();
+    if(Number.isInteger(v))return v.toString();
+    if(a>=100)return(Math.round(v*10)/10).toString();
+    if(a>=1)return(Math.round(v*100)/100).toString();
+    return v.toFixed(2);
+  }
+
+  // ── Progress bar ──
+  function ProgressBar({current,total,isMobile:mb}){
+    const pct=Math.round((current/total)*100);
+    return h('div',{style:{marginBottom:24}},
+      h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}},
+        h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim}},"Question "+current+" of "+total),
+        h('div',{style:{fontFamily:mono,fontSize:11,color:C.accent}},pct+"% complete")),
+      h('div',{style:{width:"100%",height:4,background:C.border,borderRadius:2,overflow:"hidden"}},
+        h('div',{style:{width:pct+"%",height:"100%",background:C.accent,borderRadius:2,transition:"width 0.3s ease"}})));
+  }
+
+  // ── Single question card ──
+  function QuestionCard({question,index,answer,onSubmit,isMobile:mb}){
+    const[low,setLow]=useState("");
+    const[high,setHigh]=useState("");
+    const[error,setError]=useState("");
+    const lowRef=useRef(null);
+
+    useEffect(()=>{
+      setLow("");setHigh("");setError("");
+      if(lowRef.current)lowRef.current.focus();
+    },[question.id]);
+
+    function handleSubmit(){
+      const l=parseFloat(low);
+      const hi=parseFloat(high);
+      if(isNaN(l)||isNaN(hi)){setError("Enter both a lower and upper bound.");return;}
+      if(l>=hi){setError("Your lower bound must be less than your upper bound.");return;}
+      setError("");
+      onSubmit(l,hi);
+    }
+
+    function handleKeyDown(e){
+      if(e.key==="Enter")handleSubmit();
+    }
+
+    return h('div',{className:"fade-in",style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:10,padding:mb?"20px 18px":"28px 32px",maxWidth:680}},
+      // Category badge
+      h('div',{style:{fontFamily:mono,fontSize:10,color:question.category==="cyber"?C.accent:C.textDim,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}},
+        question.category==="cyber"?"Cyber / Technology":"General Knowledge"),
+
+      // Question text
+      h('div',{style:{fontFamily:serif,fontSize:mb?17:20,color:C.text,lineHeight:1.5,marginBottom:24,fontWeight:600}},
+        question.q+"?"),
+
+      // Instruction
+      h('div',{style:{fontFamily:serif,fontSize:mb?13:14,color:C.textMuted,lineHeight:1.5,marginBottom:20}},
+        "Give a range you are 90% confident contains the true answer. Your range should be wide enough that you would be genuinely surprised if the answer fell outside it."),
+
+      // Inputs
+      h('div',{style:{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:12,alignItems:"end",marginBottom:16}},
+        h('div',null,
+          h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}},"Low (5th percentile)"),
+          h('input',{ref:lowRef,type:"number",value:low,onChange:e=>setLow(e.target.value),onKeyDown:handleKeyDown,
+            placeholder:"Lower bound",style:{textAlign:"center"}})),
+        h('div',{style:{fontFamily:mono,fontSize:14,color:C.textDim,paddingBottom:10}},"to"),
+        h('div',null,
+          h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}},"High (95th percentile)"),
+          h('input',{type:"number",value:high,onChange:e=>setHigh(e.target.value),onKeyDown:handleKeyDown,
+            placeholder:"Upper bound",style:{textAlign:"center"}}))),
+
+      // Unit hint
+      question.unit&&h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,marginBottom:16,textAlign:"center"}},
+        "Answer in: "+question.unit),
+
+      // Error
+      error&&h('div',{style:{fontFamily:mono,fontSize:11,color:C.danger,marginBottom:12}},error),
+
+      // Submit
+      h('div',{style:{display:"flex",justifyContent:"flex-end"}},
+        h('button',{onClick:handleSubmit,style:{
+          fontFamily:mono,fontSize:13,fontWeight:600,padding:"10px 24px",
+          background:C.accent,color:"#000",border:"none",borderRadius:6,
+          cursor:"pointer",transition:"all 0.15s"
+        }},"Lock In \u2192")));
+  }
+
+  // ── Results visualization ──
+  function ResultsChart({questions,answers,isMobile:mb}){
+    const ref=useRef(null);
+    const[w,setW]=useState(680);
+    useEffect(()=>{if(!ref.current)return;const o=new ResizeObserver(e=>{for(const x of e)setW(x.contentRect.width);});o.observe(ref.current);return()=>o.disconnect();},[]);
+
+    const rowH=mb?52:48;
+    const mg={top:32,right:mb?16:24,bottom:16,left:mb?16:24};
+    const ht=mg.top+questions.length*rowH+mg.bottom;
+    const pw=w-mg.left-mg.right;
+
+    // Normalize all values to a common scale per question
+    return h('div',{ref,style:{width:"100%",marginTop:20}},
+      h('svg',{width:w,height:ht,style:{display:"block"}},
+        // Header labels
+        h('text',{x:mg.left,y:16,fill:C.textDim,fontSize:9,fontFamily:mono,textAnchor:"start"},"YOUR 90% RANGE"),
+        h('text',{x:w-mg.right,y:16,fill:C.textDim,fontSize:9,fontFamily:mono,textAnchor:"end"},"TRUE ANSWER"),
+
+        ...questions.map((q,i)=>{
+          const a=answers[i];
+          const y=mg.top+i*rowH;
+          const hit=a.low<=q.answer&&a.high>=q.answer;
+
+          // Scale: find the visual extent
+          const allVals=[a.low,a.high,q.answer];
+          const vMin=Math.min(...allVals);
+          const vMax=Math.max(...allVals);
+          const pad=(vMax-vMin)*0.15||1;
+          const scaleMin=vMin-pad;
+          const scaleMax=vMax+pad;
+          const scale=v=>mg.left+((v-scaleMin)/(scaleMax-scaleMin))*pw;
+
+          const barLeft=scale(a.low);
+          const barRight=scale(a.high);
+          const trueX=scale(q.answer);
+          const barColor=hit?C.success:C.danger;
+
+          return h('g',{key:q.id},
+            // Alternating row background
+            i%2===0&&h('rect',{x:0,y:y-2,width:w,height:rowH,fill:C.bgCard,opacity:0.3}),
+
+            // Question number
+            h('text',{x:mg.left,y:y+20,fill:C.textDim,fontSize:mb?9:10,fontFamily:mono},(i+1)+"."),
+
+            // Range bar
+            h('rect',{x:barLeft,y:y+10,width:Math.max(barRight-barLeft,2),height:14,fill:barColor,opacity:0.3,rx:2}),
+            h('rect',{x:barLeft,y:y+10,width:Math.max(barRight-barLeft,2),height:14,fill:"none",stroke:barColor,strokeWidth:1.5,rx:2}),
+
+            // Low label
+            h('text',{x:barLeft,y:y+38,fill:C.textDim,fontSize:mb?7:8,fontFamily:mono,textAnchor:"middle"},fmt(a.low)),
+            // High label
+            h('text',{x:barRight,y:y+38,fill:C.textDim,fontSize:mb?7:8,fontFamily:mono,textAnchor:"middle"},fmt(a.high)),
+
+            // True answer marker
+            h('line',{x1:trueX,y1:y+6,x2:trueX,y2:y+28,stroke:C.text,strokeWidth:2.5}),
+            h('circle',{cx:trueX,cy:y+17,r:4,fill:hit?C.success:C.danger,stroke:C.text,strokeWidth:1.5}),
+
+            // Hit/Miss label
+            h('text',{x:w-mg.right,y:y+20,fill:hit?C.success:C.danger,fontSize:mb?9:10,fontFamily:mono,fontWeight:600,textAnchor:"end"},
+              hit?"\u2713 "+fmt(q.answer):"\u2717 "+fmt(q.answer)));
+        })));
+  }
+
+  // ── Score interpretation ──
+  function interpret(hits,total,questions,answers){
+    const pct=Math.round(hits/total*100);
+    // Measure sharpness: median range width as multiple of the true answer
+    let widthRatios=[];
+    if(questions&&answers){
+      questions.forEach((q,i)=>{
+        const a=answers[i];
+        if(a&&q.answer!==0){widthRatios.push((a.high-a.low)/Math.abs(q.answer));}
+      });
+    }
+    const medianWidth=widthRatios.length?widthRatios.sort((a,b)=>a-b)[Math.floor(widthRatios.length/2)]:0;
+    const absurdlyWide=medianWidth>10;
+
+    if(pct>=90){
+      if(absurdlyWide)return{grade:"Ranges Too Wide",color:C.accent,
+        msg:"You captured "+hits+" of "+total+", but your ranges were extremely wide. A 90% interval should leave you a 10% chance of being wrong. If you never miss, your ranges are probably wider than they need to be. Calibration means matching your hit rate to your stated confidence, and sharpness means keeping your ranges as narrow as possible while doing so. Try again with tighter ranges."};
+      return{grade:"Well Calibrated",color:C.success,
+        msg:"You captured "+hits+" of "+total+" answers ("+pct+"%). "+(pct>90
+          ?"That is above the 90% target, which on a 10-question test could indicate slight underconfidence: your ranges may be wider than necessary. In a perfect 90% interval, you should expect to miss about 1 in 10. Still, this is a strong result and well above what untrained estimators typically achieve."
+          :"That is exactly the 90% target. You are either well trained or have an unusually honest relationship with your own uncertainty. In formal calibration studies, fewer than 5% of untrained subjects score this well.")};}
+    if(pct>=80)return{grade:"Nearly Calibrated",color:C.success,
+      msg:"You captured "+hits+" of "+total+" answers ("+pct+"%). That is close to the 90% target and within normal statistical variance for 10 questions. You have either practiced calibration before or you set appropriately wide ranges. In formal calibration studies, fewer than 5% of untrained subjects score this well."};
+    if(pct>=60)return{grade:"Slightly Overconfident",color:C.accent,
+      msg:"You captured "+hits+" of "+total+" answers ("+pct+"%). Not bad, but still below the 90% you were aiming for. You are moderately overconfident, which means your risk estimates probably have ranges that are too narrow. The good news: this is exactly what calibration training fixes. A few more rounds and you will likely improve."};
+    if(pct>=40)return{grade:"Overconfident",color:C.accent,
+      msg:"You captured "+hits+" of "+total+" answers ("+pct+"%). You were aiming for 90% and hit "+pct+"%. This gap is typical. Research by Hubbard and others consistently finds that untrained estimators score between 30% and 50% when they believe they are at 90%. Your confidence intervals are too narrow, which means every risk estimate you produce probably understates the true range of uncertainty."};
+    return{grade:"Significantly Overconfident",color:C.danger,
+      msg:"You captured "+hits+" of "+total+" answers ("+pct+"%). That is well below the 90% target. Do not feel bad. This result is common. In Hubbard's research, first-time subjects routinely score in this range. It means your confidence intervals are far too narrow. When you estimate a risk parameter, the range you think is \"definitely wide enough\" almost certainly is not."};
+  }
+
+  // ── Main App ──
+  function App(){
+    const mb=useIsMobile();
+    const[phase,setPhase]=useState("intro"); // intro, quiz, results
+    const seenRef=useRef(new Set());
+    const[questions,setQuestions]=useState([]);
+    const[currentIdx,setCurrentIdx]=useState(0);
+    const[answers,setAnswers]=useState([]);
+
+    function startQuiz(){
+      const qs=pickQuestions(seenRef.current,questions.map(q=>q.id));
+      setQuestions(qs);
+      setCurrentIdx(0);
+      setAnswers([]);
+      setPhase("quiz");
+    }
+
+    function handleAnswer(low,high){
+      const newAnswers=[...answers,{low,high}];
+      setAnswers(newAnswers);
+      if(currentIdx<questions.length-1){
+        setCurrentIdx(currentIdx+1);
+      }else{
+        setPhase("results");
+      }
+    }
+
+    function handleRetry(){
+      startQuiz();
+    }
+
+    // Compute results
+    const hits=useMemo(()=>{
+      if(phase!=="results")return 0;
+      return questions.reduce((count,q,i)=>{
+        const a=answers[i];
+        if(!a)return count;
+        return count+(a.low<=q.answer&&a.high>=q.answer?1:0);
+      },0);
+    },[phase,questions,answers]);
+
+    const interp=useMemo(()=>questions.length?interpret(hits,questions.length,questions,answers):{grade:"",color:C.textMuted,msg:""},[hits,questions.length,phase,questions,answers]);
+
+    return h('div',{style:{minHeight:"100vh",display:"flex",flexDirection:"column"}},
+      h(Header,{isMobile:mb}),
+
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"24px 16px":"48px 24px",flex:1,width:"100%"}},
+
+        // Title
+        h('h1',{style:{fontFamily:serif,fontSize:mb?26:36,fontWeight:700,color:C.text,lineHeight:1.25,marginBottom:8}},"Calibration Trainer"),
+        h('p',{style:{fontFamily:serif,fontSize:mb?14:16,color:C.textMuted,lineHeight:1.6,marginBottom:mb?32:48,maxWidth:680}},
+          "Find out if your confidence matches your accuracy. Most people discover it does not."),
+
+        // ── ACT 1: THE LESSON ──
+        h(SLabel,{n:"1",label:"The Lesson",color:C.danger}),
+        h('div',{style:{maxWidth:680,marginBottom:mb?32:48}},
+
+          h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:16}},
+            "A calibrated estimator is someone whose stated confidence matches their actual accuracy. When a calibrated person says they are 90% sure, they are right about 90% of the time. When they say 50/50, they are right about half the time. This is a skill, not a natural talent, and most people are bad at it before training. Research consistently shows that when untrained subjects give 90% confidence intervals, the true answer falls inside that range only 30% to 50% of the time [1][2]. Their ranges are too narrow. They are more confident than they have any right to be."),
+
+          h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:16}},
+            "This matters for risk quantification because every input to your model is a confidence interval. When an expert says annual losses will fall between $1M and $5M with 90% certainty, and their intervals are only 40% reliable, your model inherits that overconfidence. The output distribution is too narrow. The tails are too thin. Decisions based on that model will underestimate the probability of extreme outcomes. Calibration training is how you fix it [1][3]."),
+
+          h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75}},
+            "The exercise below is a standard calibration test. You will see "+QUESTIONS_PER_ROUND+" questions, each asking for a numerical fact. For each one, you give a range that you are 90% confident contains the true answer. If you are perfectly calibrated, you should capture 9 out of 10. Most people capture 3 to 5. That gap is your overconfidence, and seeing it firsthand is the first step toward closing it.")),
+
+        // ── ACT 2: THE TOOL ──
+        h(SLabel,{n:"2",label:"The Tool",color:C.accent}),
+
+        // ── INTRO / START ──
+        phase==="intro"&&h('div',{style:{maxWidth:680}},
+          h(StepHeader,{label:"Ready?",color:C.accent}),
+          h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:10,padding:mb?"20px 18px":"28px 32px",marginBottom:24}},
+            h('div',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:8}},
+              "You will answer "+QUESTIONS_PER_ROUND+" questions. For each, provide a lower and upper bound that you believe has a 90% chance of containing the true answer."),
+            h('div',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:8}},
+              "Do not look anything up. The point is to measure your intuition, not your search skills."),
+            h('div',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:20}},
+              "A good 90% range should feel uncomfortably wide. If your range feels tight and precise, it is probably too narrow."),
+            h('div',{style:{fontFamily:serif,fontSize:mb?13:14,color:C.textDim,lineHeight:1.7,marginBottom:20,borderTop:"1px solid "+C.border,paddingTop:16}},
+              "A note on limitations: ten questions is enough to reveal a pattern but not enough to calibrate you. Real calibration training takes multiple rounds with feedback. This tool does not save your scores between sessions, so if you want to track your progress, write down your hit rate after each round."),
+            h('button',{onClick:startQuiz,style:{
+              fontFamily:mono,fontSize:14,fontWeight:600,padding:"12px 32px",
+              background:C.accent,color:"#000",border:"none",borderRadius:6,cursor:"pointer"
+            }},"Start the Test"))),
+
+        // ── QUIZ PHASE ──
+        phase==="quiz"&&h('div',{style:{maxWidth:680}},
+          h(ProgressBar,{current:currentIdx+1,total:questions.length,isMobile:mb}),
+          h(QuestionCard,{
+            key:questions[currentIdx].id,
+            question:questions[currentIdx],
+            index:currentIdx,
+            onSubmit:handleAnswer,
+            isMobile:mb})),
+
+        // ── RESULTS PHASE ──
+        phase==="results"&&h('div',{style:{maxWidth:780}},
+          h(StepHeader,{label:"Results: Your Calibration Score",color:C.success}),
+
+          // Big score
+          h('div',{className:"fade-in",style:{display:"flex",gap:mb?16:32,alignItems:mb?"flex-start":"center",flexDirection:mb?"column":"row",marginBottom:32}},
+
+            // Score circle
+            h('div',{style:{width:mb?100:130,height:mb?100:130,borderRadius:"50%",border:"4px solid "+interp.color,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0}},
+              h('div',{style:{fontFamily:mono,fontSize:mb?32:42,fontWeight:700,color:interp.color,lineHeight:1}},hits+"/"+questions.length),
+              h('div',{style:{fontFamily:mono,fontSize:mb?9:10,color:C.textDim,marginTop:4}},"captured")),
+
+            h('div',{style:{flex:1}},
+              h('div',{style:{fontFamily:mono,fontSize:mb?12:14,fontWeight:600,color:interp.color,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}},interp.grade),
+              h('p',{style:{fontFamily:serif,fontSize:mb?14:15,color:C.textMuted,lineHeight:1.7}},interp.msg))),
+
+          // Target comparison
+          h('div',{className:"fade-in",style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:32}},
+            h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"12px":"16px",textAlign:"center"}},
+              h('div',{style:{fontFamily:mono,fontSize:mb?8:9,color:C.textDim,textTransform:"uppercase",marginBottom:4}},"Your Hit Rate"),
+              h('div',{style:{fontFamily:mono,fontSize:mb?20:28,fontWeight:700,color:interp.color}},Math.round(hits/questions.length*100)+"%")),
+            h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"12px":"16px",textAlign:"center"}},
+              h('div',{style:{fontFamily:mono,fontSize:mb?8:9,color:C.textDim,textTransform:"uppercase",marginBottom:4}},"Target"),
+              h('div',{style:{fontFamily:mono,fontSize:mb?20:28,fontWeight:700,color:C.textMuted}},"90%")),
+            h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"12px":"16px",textAlign:"center"}},
+              h('div',{style:{fontFamily:mono,fontSize:mb?8:9,color:C.textDim,textTransform:"uppercase",marginBottom:4}},
+                Math.round(hits/questions.length*100)>90?"Underconfidence Gap":"Overconfidence Gap"),
+              h('div',{style:{fontFamily:mono,fontSize:mb?20:28,fontWeight:700,color:Math.abs(90-Math.round(hits/questions.length*100))<=10?C.success:C.danger}},
+                Math.abs(90-Math.round(hits/questions.length*100))+"pp"))),
+
+          // Chart
+          h('div',{className:"fade-in",style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:10,padding:mb?"16px":"20px 24px",marginBottom:32}},
+            h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}},"Your Ranges vs. True Answers"),
+            h('div',{style:{fontFamily:mono,fontSize:9,color:C.textDim,marginBottom:8}},
+              h('span',{style:{color:C.success}},"\u25A0")," = captured    ",
+              h('span',{style:{color:C.danger}},"\u25A0")," = missed    ",
+              h('span',{style:{color:C.text}},"\u25CF")," = true answer"),
+            h(ResultsChart,{questions,answers,isMobile:mb})),
+
+          // Question details
+          h('div',{className:"fade-in"},
+            h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}},"Question-by-Question Breakdown"),
+            ...questions.map((q,i)=>{
+              const a=answers[i];
+              const hit=a.low<=q.answer&&a.high>=q.answer;
+              return h('div',{key:q.id,style:{background:C.bgCard,border:"1px solid "+(hit?C.success+"30":C.danger+"30"),borderLeft:"3px solid "+(hit?C.success:C.danger),borderRadius:6,padding:mb?"12px 14px":"14px 18px",marginBottom:8}},
+                h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}},
+                  h('div',{style:{flex:1,minWidth:200}},
+                    h('div',{style:{fontFamily:serif,fontSize:mb?13:14,color:C.text,lineHeight:1.4,marginBottom:4}},
+                      (i+1)+". "+q.q),
+                    h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim}},
+                      "Your range: "+fmt(a.low)+" to "+fmt(a.high))),
+                  h('div',{style:{textAlign:"right",flexShrink:0}},
+                    h('div',{style:{fontFamily:mono,fontSize:13,fontWeight:700,color:hit?C.success:C.danger}},
+                      hit?"\u2713 "+fmt(q.answer):"\u2717 "+fmt(q.answer)),
+                    h('div',{style:{fontFamily:mono,fontSize:9,color:C.textDim,marginTop:2}},
+                      q.source))));
+            })),
+
+          // Retry
+          h('div',{style:{marginTop:24,display:"flex",gap:12}},
+            h('button',{onClick:handleRetry,style:{
+              fontFamily:mono,fontSize:13,fontWeight:600,padding:"10px 24px",
+              background:C.accent,color:"#000",border:"none",borderRadius:6,cursor:"pointer"
+            }},"Try Again"),
+            h('button',{onClick:()=>setPhase("intro"),style:{
+              fontFamily:mono,fontSize:13,fontWeight:500,padding:"10px 24px",
+              background:"transparent",color:C.textDim,border:"1px solid "+C.border,borderRadius:6,cursor:"pointer"
+            }},"Back to Start"))),
+
+
+        // ── ACT 3: THE TAKEAWAY ──
+        h('div',{style:{marginTop:mb?40:56}},
+          h(SLabel,{n:"3",label:"The Takeaway",color:C.success}),
+          h('div',{style:{maxWidth:680}},
+            h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:16}},
+              phase==="results"
+                ?"Your score was "+hits+" out of "+questions.length+", which puts your hit rate at "+Math.round(hits/questions.length*100)+"%. "+(hits/questions.length>=0.9
+                  ?(hits/questions.length>0.9
+                    ?"That is above the 90% target. On a 10-question test this could reflect slight underconfidence, meaning your ranges may be wider than necessary. The goal is not to capture every answer: a perfect 90% interval should miss about 1 in 10."
+                    :"That is exactly the 90% target. You either have prior calibration training or an unusually honest relationship with your own uncertainty.")
+                  :(hits/questions.length>=0.8
+                    ?"That is close to the 90% target and within normal statistical variance for 10 questions. You either have prior calibration training or an unusually honest relationship with your own uncertainty."
+                    :"The gap between "+Math.round(hits/questions.length*100)+"% and 90% is your overconfidence ratio. Every time you give a range estimate for a risk model, that same gap applies. Your \"90% confident\" inputs are really "+Math.round(hits/questions.length*100)+"% confident, and the model's output inherits that distortion."))
+                :"Calibration is the most undertrained skill in risk management. Organizations will spend weeks debating whether a risk is \"likely\" or \"possible,\" but they almost never test whether their experts' probability estimates are any good. This test changes that."),
+            h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:16}},
+              phase==="results"
+                ?"Calibration improves with practice. Hubbard's research shows that most people reach true 90% calibration within 3 to 5 rounds of feedback [1]. The two most effective techniques: first, practice thinking about equivalent bets (\"would I bet $1,000 that the answer is inside this range?\"); second, consider specific reasons the answer might be outside your range before locking in [1][3]. This tool does not save scores between sessions, so write down your hit rate each round to track your improvement."
+                :"The good news is that calibration is trainable. Research shows most people improve significantly within a few rounds of practice with feedback [1]. The key insight is simple: when you think your range is wide enough, make it wider. Your gut instinct for \"90% confident\" is almost certainly too narrow. The exercises below will prove it."),
+            h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:24}},
+              "From Heatmaps to Histograms makes the case that expert judgment is a measurable input. Before you ask subject matter experts to estimate loss distributions, it helps to know how well they translate beliefs into probabilities. This tool is one way to find out.")),
+
+          // References
+          h('div',{style:{maxWidth:680,marginTop:8,borderTop:"1px solid "+C.border,paddingTop:24,marginBottom:32}},
+            h('div',{style:{fontFamily:mono,fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}},"References"),
+            h('div',{style:{fontFamily:serif,fontSize:mb?12:13,color:C.textDim,lineHeight:1.7}},
+              h('p',{style:{marginBottom:8}},
+                "[1] Hubbard, D.W. (2014). ",
+                h('em',null,"How to Measure Anything: Finding the Value of \"Intangibles\" in Business"),
+                ", 3rd ed. Wiley."),
+              h('p',{style:{marginBottom:8}},
+                "[2] Lichtenstein, S., Fischhoff, B. & Phillips, L.D. (1982). Calibration of probabilities: The state of the art to 1980. In D. Kahneman, P. Slovic & A. Tversky (Eds.), ",
+                h('em',null,"Judgment Under Uncertainty: Heuristics and Biases"),
+                ", pp. 306\u2013334. Cambridge University Press."),
+              h('p',{style:{marginBottom:0}},
+                "[3] Tetlock, P.E. & Gardner, D. (2015). ",
+                h('em',null,"Superforecasting: The Art and Science of Prediction"),
+                ". Crown."))),
+
+          // CTAs
+          h('div',{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:40}},
+            h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:{textDecoration:"none"}},
+              h('button',{style:{background:C.accent,color:"#000",border:"none",borderRadius:6,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}},"Order the Book")),
+            h('a',{href:"https://www.heatmapstohistograms.com/",style:{textDecoration:"none"}},
+              h('button',{style:{background:"transparent",color:C.accent,border:"1px solid "+C.accent,borderRadius:6,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}},"Book Site")),
+            h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:{textDecoration:"none"}},
+              h('button',{style:{background:"transparent",color:C.accent,border:"1px solid "+C.accent,borderRadius:6,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}},"Newsletter"))))),
+
+      h(Disclaimer),
+      h(Footer,{isMobile:mb}));
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+  </script>
+</body>
+</html>
