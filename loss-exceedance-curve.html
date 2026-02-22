@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How to Read a Loss Exceedance Curve: An Interactive Guide</title>
+  <meta name="description" content="Learn to read the most useful chart in cyber risk quantification. Build a loss exceedance curve from scratch and overlay risk tolerance, loss reserves, and materiality thresholds. A companion tool for From Heatmaps to Histograms by Tony Martin-Vegue." />
+  <meta name="author" content="Tony Martin-Vegue" />
+  <meta name="robots" content="index, follow" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="How to Read a Loss Exceedance Curve: An Interactive Guide" />
+  <meta property="og:description" content="The most useful chart in risk quantification, explained step by step. Build one, add your own thresholds, and see what the curve is telling you." />
+  <meta property="og:site_name" content="From Heatmaps to Histograms" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="How to Read a Loss Exceedance Curve" />
+  <meta name="twitter:description" content="The most useful chart in risk quantification, explained step by step." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0B1120;font-family:'Source Serif 4',Georgia,serif}
+    ::selection{background:#F59E0B;color:#000}
+    a:hover{opacity:0.85}
+    button{font-family:'IBM Plex Mono',monospace}
+    input[type=number]{font-family:'IBM Plex Mono',monospace;background:#0B1120;color:#E2E8F0;border:1px solid #334155;border-radius:4px;padding:6px 8px;font-size:13px;width:100%;outline:none}
+    input[type=number]:focus{border-color:#F59E0B}
+    input[type=number]::-webkit-inner-spin-button{opacity:1}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    .fade-in{animation:fadeIn 0.4s ease-out forwards}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script>
+  'use strict';
+  const {useState,useCallback,useEffect,useRef,useMemo,createElement:h}=React;
+
+  const C={bg:"#0B1120",bgCard:"#111827",border:"#1E293B",borderLight:"#334155",text:"#E2E8F0",textMuted:"#94A3B8",textDim:"#64748B",accent:"#F59E0B",accentGlow:"rgba(245,158,11,0.15)",danger:"#EF4444",dangerMuted:"rgba(239,68,68,0.2)",success:"#10B981"};
+  const mono="'IBM Plex Mono',monospace";
+  const serif="'Source Serif 4',Georgia,serif";
+
+  function useIsMobile(bp){const[m,setM]=useState(false);useEffect(()=>{const c=()=>setM(window.innerWidth<(bp||768));c();window.addEventListener("resize",c);return()=>window.removeEventListener("resize",c);},[bp]);return m;}
+
+  // ============================================================
+  // DOLLAR FORMATTING & PARSING
+  // ============================================================
+  function fmtD(v){
+    if(v==null||isNaN(v)||v===0)return"$0";
+    if(v>=1e9)return"$"+(v/1e9).toFixed(1)+"B";
+    if(v>=1e6)return"$"+(v/1e6).toFixed(1)+"M";
+    if(v>=1e3)return"$"+Math.round(v/1e3)+"K";
+    return"$"+Math.round(v);
+  }
+
+  function parseDollar(s){
+    if(!s&&s!==0)return NaN;
+    s=s.toString().replace(/[$,\s]/g,"").toUpperCase();
+    let mult=1;
+    if(s.endsWith("K")){mult=1e3;s=s.slice(0,-1);}
+    else if(s.endsWith("M")){mult=1e6;s=s.slice(0,-1);}
+    else if(s.endsWith("B")){mult=1e9;s=s.slice(0,-1);}
+    const n=parseFloat(s);
+    return isNaN(n)?NaN:n*mult;
+  }
+
+  // ============================================================
+  // MONTE CARLO ENGINE
+  // ============================================================
+  function pertRandom(min,mode,max){
+    if(min>=max)return mode;
+    const range=max-min;
+    const alpha=1+4*(mode-min)/range;
+    const beta=1+4*(max-mode)/range;
+    for(let i=0;i<1000;i++){
+      const u=Math.random(),v=Math.random();
+      const ux=Math.pow(u,1/alpha),vx=Math.pow(v,1/beta);
+      const s=ux+vx;
+      if(s<=1&&s>0)return min+(ux/s)*range;
+    }
+    return mode;
+  }
+
+  function poissonSample(lambda){
+    if(lambda<=0)return 0;
+    if(lambda<30){
+      const L=Math.exp(-lambda);let k=0,p=1;
+      do{k++;p*=Math.random();}while(p>L);
+      return k-1;
+    }else{
+      const u1=Math.random(),u2=Math.random();
+      const z=Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
+      return Math.max(0,Math.round(lambda+Math.sqrt(lambda)*z));
+    }
+  }
+
+  function runSimulation(fMin,fMode,fMax,mMin,mMode,mMax,n){
+    const results=new Float64Array(n);
+    for(let i=0;i<n;i++){
+      const rate=pertRandom(fMin,fMode,fMax);
+      const count=poissonSample(rate);
+      let total=0;
+      for(let j=0;j<count;j++) total+=pertRandom(mMin,mMode,mMax);
+      results[i]=total;
+    }
+    return results;
+  }
+
+  function buildLEC(results){
+    const sorted=Array.from(results).sort((a,b)=>a-b);
+    const n=sorted.length,pts=[];
+    const step=Math.max(1,Math.floor(n/500));
+    for(let i=0;i<n;i+=step) pts.push({loss:sorted[i],prob:(n-i)/n});
+    if(pts[pts.length-1].loss!==sorted[n-1]) pts.push({loss:sorted[n-1],prob:1/n});
+    return pts;
+  }
+
+  function exceedanceAt(results,threshold){
+    let c=0;for(let i=0;i<results.length;i++)if(results[i]>=threshold)c++;
+    return c/results.length;
+  }
+
+  // ============================================================
+  // SHARED COMPONENTS
+  // ============================================================
+  function Header({isMobile:mb}){
+    return h('div',{style:{borderBottom:"1px solid "+C.border,padding:mb?"12px 0":"16px 0"}},
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"0 16px":"0 24px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}},
+        h('div',null,
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{textDecoration:"none"}},
+            h('div',{style:{fontFamily:mono,fontSize:mb?10:11,letterSpacing:"0.15em",color:C.accent,textTransform:"uppercase",marginBottom:2}},"From Heatmaps to Histograms")),
+          h('div',{style:{fontFamily:mono,fontSize:mb?10:11,color:C.textDim}},"\u00B7 Interactive Tools \u00B7 Tony Martin-Vegue")),
+        !mb&&h('div',{style:{display:"flex",gap:20,fontFamily:mono,fontSize:11,color:C.textDim}},
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Book"),
+          h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Newsletter"),
+          h('a',{href:"https://www.95risk.com",style:{color:C.textDim,textDecoration:"none"}},"95 Risk Advisory"))));
+  }
+
+  function Footer({isMobile:mb}){
+    const ls={color:C.textMuted,textDecoration:"none"};
+    return h('div',{style:{borderTop:"1px solid "+C.border,padding:"28px 0",marginTop:64}},
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"0 16px":"0 24px",display:"flex",flexDirection:mb?"column":"row",justifyContent:"space-between",alignItems:mb?"center":"flex-start",gap:mb?16:0}},
+        h('div',{style:{textAlign:mb?"center":"left"}},
+          h('div',{style:{fontFamily:mono,fontSize:11,color:C.accent,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}},"From Heatmaps to Histograms"),
+          h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim}},"Tony Martin-Vegue \u00B7 Apress")),
+        h('div',{style:{display:"flex",gap:mb?20:24,fontFamily:mono,fontSize:11}},
+          h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:ls},"Order"),
+          h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:ls},"Newsletter"),
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:ls},"Book Site"),
+          h('a',{href:"https://www.95risk.com",style:ls},"Consulting"))));
+  }
+
+  function SLabel({n,label,color}){
+    return h('div',{style:{display:"flex",alignItems:"center",gap:12,marginBottom:20}},
+      h('div',{style:{width:32,height:32,borderRadius:"50%",background:color||C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:mono,fontSize:14,fontWeight:700,color:"#000",flexShrink:0}},n),
+      h('div',{style:{fontFamily:mono,fontSize:12,letterSpacing:"0.1em",textTransform:"uppercase",color:C.textMuted}},label));
+  }
+
+  function StepLabel({label,color}){
+    return h('div',{style:{display:"flex",alignItems:"center",gap:8,marginBottom:12}},
+      h('div',{style:{width:10,height:10,borderRadius:2,background:color||C.accent,flexShrink:0}}),
+      h('div',{style:{fontFamily:mono,fontSize:13,fontWeight:600,color:color||C.accent,textTransform:"uppercase",letterSpacing:"0.05em"}},label));
+  }
+
+  // ============================================================
+  // THREE-POINT INPUT
+  // ============================================================
+  function ThreePoint({label,vals,onVals,isDollar,isMobile:mb}){
+    const ip={background:C.bg,color:C.text,border:"1px solid "+C.borderLight,borderRadius:4,fontFamily:mono,fontSize:mb?14:13,padding:mb?"8px 6px":"6px 8px",width:"100%",outline:"none"};
+    const labels=["MIN","MOST LIKELY","MAX"];
+    const display=isDollar?vals.map(v=>fmtD(v)):vals.map(v=>String(v));
+    const[texts,setTexts]=useState(display);
+
+    // Sync if vals change externally
+    useEffect(()=>{setTexts(isDollar?vals.map(v=>fmtD(v)):vals.map(v=>String(v)));},[vals.join(",")]);
+
+    function handleChange(i,raw){
+      const t=[...texts];t[i]=raw;setTexts(t);
+    }
+    function handleBlur(i){
+      const parsed=isDollar?parseDollar(texts[i]):parseFloat(texts[i]);
+      if(!isNaN(parsed)&&parsed>=0){
+        const nv=[...vals];nv[i]=parsed;onVals(nv);
+        const t=[...texts];t[i]=isDollar?fmtD(parsed):String(parsed);setTexts(t);
+      }else{
+        const t=[...texts];t[i]=isDollar?fmtD(vals[i]):String(vals[i]);setTexts(t);
+      }
+    }
+
+    return h('div',{style:{marginBottom:0}},
+      h('div',{style:{fontFamily:mono,fontSize:11,color:C.textMuted,marginBottom:6}},label),
+      h('div',{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
+        ...labels.map((lbl,i)=>
+          h('div',{key:i},
+            h('div',{style:{fontFamily:mono,fontSize:9,color:C.textDim,marginBottom:3}},lbl),
+            h('input',{type:"text",value:texts[i],
+              onChange:e=>handleChange(i,e.target.value),
+              onBlur:()=>handleBlur(i),
+              onKeyDown:e=>{if(e.key==="Enter")e.target.blur();},
+              style:ip})))));
+  }
+
+  // ============================================================
+  // LEC CHART (interactive hover)
+  // ============================================================
+  function LECChart({lecData,anchors,rawResults,isMobile:mb,stats,customName}){
+    const ref=useRef(null);
+    const svgRef=useRef(null);
+    const[cw,setCw]=useState(600);
+    const[hover,setHover]=useState(null); // {x, y, loss, prob}
+    useEffect(()=>{if(!ref.current)return;const o=new ResizeObserver(e=>{for(const x of e)setCw(x.contentRect.width);});o.observe(ref.current);return()=>o.disconnect();},[]);
+    if(!lecData||!lecData.length)return null;
+
+    const mg={top:32,right:mb?12:24,bottom:mb?52:56,left:mb?52:64};
+    const w=cw,ht=mb?400:520;
+    const pw=w-mg.left-mg.right,ph=ht-mg.top-mg.bottom;
+
+    const maxLoss=lecData[lecData.length-1].loss*1.05||1;
+    const xS=v=>mg.left+Math.min((v/maxLoss),1)*pw;
+    const yS=v=>mg.top+(1-v)*ph;
+    // Inverse: pixel to loss
+    const xInv=px=>Math.max(0,Math.min(maxLoss,(px-mg.left)/pw*maxLoss));
+
+    // Find exceedance prob for any loss value by interpolating LEC data
+    function lecLookup(lossVal){
+      if(lossVal<=lecData[0].loss)return lecData[0].prob;
+      if(lossVal>=lecData[lecData.length-1].loss)return lecData[lecData.length-1].prob;
+      for(let i=1;i<lecData.length;i++){
+        if(lecData[i].loss>=lossVal){
+          const prev=lecData[i-1],cur=lecData[i];
+          const t=(lossVal-prev.loss)/(cur.loss-prev.loss);
+          return prev.prob+(cur.prob-prev.prob)*t;
+        }
+      }
+      return 0;
+    }
+
+    function handleMove(clientX,clientY){
+      if(!svgRef.current)return;
+      const rect=svgRef.current.getBoundingClientRect();
+      const px=clientX-rect.left;
+      const py=clientY-rect.top;
+      if(px<mg.left||px>w-mg.right||py<mg.top||py>ht-mg.bottom){setHover(null);return;}
+      const loss=xInv(px);
+      const prob=lecLookup(loss);
+      setHover({x:xS(loss),y:yS(prob),loss,prob});
+    }
+
+    let path="M "+xS(lecData[0].loss)+" "+yS(lecData[0].prob);
+    for(let i=1;i<lecData.length;i++) path+=" L "+xS(lecData[i].loss)+" "+yS(lecData[i].prob);
+
+    const anchorDefs=[
+      {key:"tolerance",color:"#EF4444",label:"Risk Tolerance"},
+      {key:"reserve",color:"#3B82F6",label:"Loss Reserve"},
+      {key:"materiality",color:"#F97316",label:"Materiality"},
+      {key:"custom",color:"#A855F7",label:customName||"Custom"},
+    ];
+
+    const yTicks=[0,0.25,0.50,0.75,1.0];
+    const xTicks=[];for(let i=0;i<=4;i++)xTicks.push((maxLoss/4)*i);
+
+    // Tooltip positioning: keep inside chart
+    const tipW=mb?220:280;
+    const tipH=mb?52:56;
+    let tipX=hover?hover.x+12:0;
+    let tipY=hover?hover.y-tipH-8:0;
+    if(hover){
+      if(tipX+tipW>w-mg.right)tipX=hover.x-tipW-12;
+      if(tipY<mg.top)tipY=hover.y+12;
+    }
+
+    return h('div',{ref,style:{width:"100%"}},
+      // Hover statement below chart
+      h('div',{style:{minHeight:mb?40:44,marginBottom:8,padding:"0 4px"}},
+        hover
+          ?h('div',{style:{fontFamily:mono,fontSize:mb?12:14,color:C.accent,lineHeight:1.5,transition:"opacity 0.15s"}},
+            h('span',{style:{color:C.text,fontWeight:600}},Math.round(hover.prob*100)+"%"),
+            " chance annual losses from this risk meet or exceed ",
+            h('span',{style:{color:C.text,fontWeight:600}},fmtD(hover.loss)))
+          :h('div',{style:{fontFamily:mono,fontSize:mb?11:12,color:C.textDim,fontStyle:"italic"}},
+            mb?"Tap and drag across the curve to read it":"Hover over the curve to read it. Every point is a probability statement.")),
+      h('svg',{ref:svgRef,width:w,height:ht,
+        style:{display:"block",background:C.bgCard,borderRadius:8,border:"1px solid "+C.border,cursor:"crosshair"},
+        onMouseMove:e=>handleMove(e.clientX,e.clientY),
+        onMouseLeave:()=>setHover(null),
+        onTouchMove:e=>{if(e.touches[0])handleMove(e.touches[0].clientX,e.touches[0].clientY);},
+        onTouchEnd:()=>setHover(null)},
+        // Grid
+        ...yTicks.map(v=>h('line',{key:"yg"+v,x1:mg.left,y1:yS(v),x2:w-mg.right,y2:yS(v),stroke:C.border,strokeWidth:0.5})),
+        ...yTicks.map(v=>h('text',{key:"yl"+v,x:mg.left-6,y:yS(v)+3,fill:C.textDim,fontSize:mb?8:9,textAnchor:"end",fontFamily:mono},Math.round(v*100)+"%")),
+        ...xTicks.map(v=>h('line',{key:"xg"+v,x1:xS(v),y1:mg.top,x2:xS(v),y2:ht-mg.bottom,stroke:C.border,strokeWidth:0.5})),
+        ...xTicks.map(v=>h('text',{key:"xl"+v,x:xS(v),y:ht-mg.bottom+14,fill:C.textDim,fontSize:mb?8:9,textAnchor:"middle",fontFamily:mono},fmtD(v))),
+        // Axis labels
+        h('text',{x:mg.left-6,y:mg.top-8,fill:C.textMuted,fontSize:mb?7:8,textAnchor:"end",fontFamily:mono},"Probability of"),
+        h('text',{x:mg.left-6,y:mg.top-0,fill:C.textMuted,fontSize:mb?7:8,textAnchor:"end",fontFamily:mono},"exceeding \u2192"),
+        h('text',{x:w/2,y:ht-8,fill:C.textMuted,fontSize:mb?9:10,textAnchor:"middle",fontFamily:mono},"Annual Loss"),
+        // Fill
+        h('path',{d:path+" L "+xS(lecData[lecData.length-1].loss)+" "+yS(0)+" L "+xS(lecData[0].loss)+" "+yS(0)+" Z",fill:C.accent,opacity:0.08}),
+        // Curve
+        h('path',{d:path,fill:"none",stroke:C.accent,strokeWidth:2.5,strokeLinejoin:"round"}),
+        // Anchors
+        ...anchorDefs.map((a,ai)=>{
+          const val=anchors[a.key];
+          if(!val||val<=0||val>maxLoss)return null;
+          const prob=exceedanceAt(rawResults,val);
+          const x=xS(val),y=yS(prob);
+          // Position label near the dot on the curve
+          const lblX=Math.min(x+8,w-mg.right-80);
+          const lblY=y-8;
+          return h('g',{key:a.key},
+            h('line',{x1:x,y1:yS(0),x2:x,y2:y,stroke:a.color,strokeWidth:1.5,strokeDasharray:"4,3"}),
+            h('line',{x1:mg.left,y1:y,x2:x,y2:y,stroke:a.color,strokeWidth:1,strokeDasharray:"2,2",opacity:0.5}),
+            h('circle',{cx:x,cy:y,r:4,fill:a.color,stroke:C.bg,strokeWidth:2}),
+            // Label near the dot with background
+            h('rect',{x:lblX-3,y:lblY-11,width:mb?120:150,height:15,rx:2,fill:C.bg,opacity:0.8}),
+            h('text',{x:lblX,y:lblY,fill:a.color,fontSize:mb?8:9,textAnchor:"start",fontFamily:mono,fontWeight:600},a.label+" "+fmtD(val)),
+            h('text',{x:mg.left-6,y:y+3,fill:a.color,fontSize:mb?8:9,textAnchor:"end",fontFamily:mono,fontWeight:600},Math.round(prob*100)+"%"));
+        }).filter(Boolean),
+        // P50/P90 triangles
+        stats&&h('g',null,
+          h('polygon',{points:xS(stats.p50)+","+(ht-mg.bottom+20)+" "+(xS(stats.p50)-4)+","+(ht-mg.bottom+28)+" "+(xS(stats.p50)+4)+","+(ht-mg.bottom+28),fill:C.textDim}),
+          h('text',{x:xS(stats.p50),y:ht-mg.bottom+38,fill:C.textDim,fontSize:7,textAnchor:"middle",fontFamily:mono},"P50: "+fmtD(stats.p50)),
+          h('polygon',{points:xS(stats.p90)+","+(ht-mg.bottom+20)+" "+(xS(stats.p90)-4)+","+(ht-mg.bottom+28)+" "+(xS(stats.p90)+4)+","+(ht-mg.bottom+28),fill:C.accent}),
+          h('text',{x:xS(stats.p90),y:ht-mg.bottom+38,fill:C.accent,fontSize:7,textAnchor:"middle",fontFamily:mono,fontWeight:600},"P90: "+fmtD(stats.p90))),
+        // Hover crosshair
+        hover&&h('g',null,
+          h('line',{x1:hover.x,y1:yS(0),x2:hover.x,y2:hover.y,stroke:C.text,strokeWidth:1,strokeDasharray:"2,2",opacity:0.4}),
+          h('line',{x1:mg.left,y1:hover.y,x2:hover.x,y2:hover.y,stroke:C.text,strokeWidth:1,strokeDasharray:"2,2",opacity:0.4}),
+          h('circle',{cx:hover.x,cy:hover.y,r:5,fill:C.accent,stroke:C.bg,strokeWidth:2}),
+          // Y-axis readout
+          h('rect',{x:mg.left-48,y:hover.y-9,width:44,height:18,rx:3,fill:C.accent}),
+          h('text',{x:mg.left-26,y:hover.y+3,fill:"#000",fontSize:9,textAnchor:"middle",fontFamily:mono,fontWeight:700},Math.round(hover.prob*100)+"%"),
+          // X-axis readout
+          h('rect',{x:hover.x-24,y:ht-mg.bottom+2,width:48,height:16,rx:3,fill:C.accent}),
+          h('text',{x:hover.x,y:ht-mg.bottom+13,fill:"#000",fontSize:8,textAnchor:"middle",fontFamily:mono,fontWeight:700},fmtD(hover.loss)))
+      ));
+  }
+
+  // ============================================================
+  // HISTOGRAM CHART
+  // ============================================================
+  function HistogramChart({results,isMobile:mb}){
+    const ref=useRef(null);
+    const[cw,setCw]=useState(600);
+    useEffect(()=>{if(!ref.current)return;const o=new ResizeObserver(e=>{for(const x of e)setCw(x.contentRect.width);});o.observe(ref.current);return()=>o.disconnect();},[]);
+    if(!results)return null;
+
+    const nonZero=Array.from(results).filter(v=>v>0);
+    const zeroFrac=1-nonZero.length/results.length;
+    if(nonZero.length<2)return h('div',{style:{fontFamily:mono,fontSize:12,color:C.textDim,padding:16}},Math.round(zeroFrac*100)+"% of simulated years had no loss events.");
+
+    const mg={top:16,right:mb?8:16,bottom:32,left:mb?8:16};
+    const w=cw,ht=mb?180:220;
+    const pw=w-mg.left-mg.right,ph=ht-mg.top-mg.bottom;
+    const minV=Math.min(...nonZero),maxV=Math.max(...nonZero);
+    const numBins=mb?25:40;
+    const binW=(maxV-minV)/numBins||1;
+    const bins=new Array(numBins).fill(0);
+    nonZero.forEach(v=>{const bi=Math.min(Math.floor((v-minV)/binW),numBins-1);bins[bi]++;});
+    const maxBin=Math.max(...bins);
+    const barW=pw/numBins;
+    const xS=i=>mg.left+i*barW;
+    const yS=v=>mg.top+ph*(1-v/maxBin);
+
+    return h('div',{ref,style:{width:"100%"}},
+      h('svg',{width:w,height:ht,style:{display:"block",background:C.bgCard,borderRadius:8,border:"1px solid "+C.border}},
+        ...bins.map((b,i)=>b>0?h('rect',{key:i,x:xS(i)+0.5,y:yS(b),width:Math.max(barW-1,1),height:ph-yS(b)+mg.top,fill:C.accent,opacity:0.7,rx:1}):null),
+        h('text',{x:mg.left+4,y:ht-6,fill:C.textDim,fontSize:mb?8:9,fontFamily:mono},fmtD(minV)),
+        h('text',{x:w-mg.right-4,y:ht-6,fill:C.textDim,fontSize:mb?8:9,fontFamily:mono,textAnchor:"end"},fmtD(maxV)),
+        h('text',{x:w/2,y:ht-6,fill:C.textMuted,fontSize:mb?8:9,fontFamily:mono,textAnchor:"middle"},"Annual Loss")),
+      zeroFrac>0&&h('div',{style:{fontFamily:mono,fontSize:9,color:C.textDim,textAlign:"center",marginTop:4}},
+        Math.round(zeroFrac*100)+"% of years: no loss events (not shown)"));
+  }
+
+  // ============================================================
+  // ANCHOR INPUT
+  // ============================================================
+  function AnchorInput({label,description,color,value,onChange,prob,isMobile:mb}){
+    const[text,setText]=useState(value>0?fmtD(value):"");
+    const hasVal=value>0;
+    useEffect(()=>{setText(value>0?fmtD(value):"");},[value]);
+    function commit(){const v=parseDollar(text);if(!isNaN(v)&&v>0){onChange(v);setText(fmtD(v));}else if(!text||text==="$0"){onChange(0);setText("");}}
+    function remove(){onChange(0);setText("");}
+
+    return h('div',{style:{
+      background:hasVal?color+"0D":C.bgCard,border:"1px solid "+(hasVal?color+"33":C.border),
+      borderRadius:8,padding:mb?"12px":"14px 18px",marginBottom:10,transition:"all 0.3s"
+    }},
+      h('div',{style:{display:"flex",alignItems:mb?"flex-start":"center",gap:mb?8:16,flexDirection:mb?"column":"row"}},
+        h('div',{style:{flex:1}},
+          h('div',{style:{fontFamily:mono,fontSize:mb?11:12,fontWeight:600,color:color}},label),
+          h('div',{style:{fontFamily:serif,fontSize:mb?12:13,color:C.textDim,lineHeight:1.4,marginTop:2}},description)),
+        h('div',{style:{display:"flex",gap:6,alignItems:"center",width:mb?"100%":"auto"}},
+          h('input',{type:"text",placeholder:"e.g. $5M",value:text,
+            onChange:e=>setText(e.target.value),
+            onKeyDown:e=>{if(e.key==="Enter"){e.target.blur();commit();}},
+            style:{fontFamily:mono,fontSize:mb?14:13,background:C.bg,color:C.text,
+              border:"1px solid "+(hasVal?color+"66":C.borderLight),
+              borderRadius:4,padding:mb?"8px 10px":"6px 10px",width:mb?"100%":120,outline:"none"}}),
+          h('button',{onClick:commit,style:{
+            fontFamily:mono,fontSize:mb?10:10,fontWeight:600,
+            background:hasVal?"transparent":color,color:hasVal?color:"#000",
+            border:hasVal?"1px solid "+color+"66":"none",
+            borderRadius:4,padding:mb?"8px 10px":"6px 10px",cursor:"pointer",whiteSpace:"nowrap"
+          }},hasVal?"Update":"Add to Curve"),
+          hasVal&&h('button',{onClick:remove,style:{
+            fontFamily:mono,fontSize:10,color:C.textDim,background:"transparent",border:"none",
+            cursor:"pointer",padding:"6px 4px"
+          }},"\u2715"))),
+      hasVal&&prob!=null&&h('div',{className:"fade-in",style:{
+        marginTop:10,padding:"8px 12px",background:color+"12",borderRadius:6,
+        fontFamily:mono,fontSize:mb?11:12,color:color,fontWeight:500,lineHeight:1.5
+      }},prob>0
+        ?"There is a "+Math.round(prob*100)+"% chance annual losses exceed your "+fmtD(value)+" "+label.toLowerCase()+"."
+        :"None of the 10,000 simulated years exceeded "+fmtD(value)+". This threshold appears well above the modeled risk."));
+  }
+
+  // ============================================================
+  // MAIN APP
+  // ============================================================
+  function App(){
+    const mb=useIsMobile();
+    const pd=mb?16:24;
+
+    const[freqVals,setFreqVals]=useState([1.0,3.0,8.0]);
+    const[magVals,setMagVals]=useState([500000,2000000,7000000]);
+
+    const[results,setResults]=useState(null);
+    const[lecData,setLecData]=useState(null);
+    const[stats,setStats]=useState(null);
+    const[phase,setPhase]=useState("input"); // input | histogram | lec
+
+    const[tolerance,setTolerance]=useState(0);
+    const[reserve,setReserve]=useState(0);
+    const[materiality,setMateriality]=useState(0);
+    const[custom,setCustom]=useState(0);
+    const[customName,setCustomName]=useState("Custom Threshold");
+
+    const lecRef=useRef(null);
+    const N=10000;
+
+    function handleRun(){
+      const res=runSimulation(freqVals[0],freqVals[1],freqVals[2],magVals[0],magVals[1],magVals[2],N);
+      const sorted=Array.from(res).sort((a,b)=>a-b);
+      setResults(res);
+      setLecData(buildLEC(res));
+      setStats({
+        p50:sorted[Math.floor(N*0.5)],
+        p90:sorted[Math.floor(N*0.9)],
+        mean:sorted.reduce((a,b)=>a+b,0)/N,
+        zeroYears:sorted.filter(v=>v===0).length
+      });
+      setPhase("histogram");
+      // Pre-fill sample anchors for learning
+      setTolerance(5000000);setReserve(2000000);setMateriality(20000000);setCustom(0);
+    }
+
+    function handleShowLEC(){
+      setPhase("lec");
+      setTimeout(()=>{if(lecRef.current)lecRef.current.scrollIntoView({behavior:"smooth",block:"start"});},100);
+    }
+
+    const anchors={tolerance,reserve,materiality,custom};
+
+    return h('div',{style:{minHeight:"100vh",background:C.bg,color:C.text}},
+      h(Header,{isMobile:mb}),
+
+      // ======== ACT 1 ========
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
+        h(SLabel,{n:"1",label:"The Lesson",color:C.danger}),
+        h('h1',{style:{fontFamily:serif,fontSize:mb?26:36,fontWeight:700,lineHeight:1.2,marginBottom:24,maxWidth:700}},
+          "How to Read a Loss Exceedance Curve"),
+        h('div',{style:{maxWidth:680,fontFamily:serif,fontSize:mb?15:16,lineHeight:1.75,color:C.textMuted}},
+          h('p',{style:{marginBottom:16}},
+            "A histogram shows you the shape of the risk. A loss exceedance curve answers the question everyone in the room is thinking: \u201CWhat are the odds we lose more than $X?\u201D"),
+          h('p',null,
+            "Reading it is simple: pick any dollar amount on the horizontal axis, look up to the curve, then read across to the vertical axis. That number is the probability that annual losses from this risk will meet or exceed that amount. Once you can read this chart, you can have a real conversation about risk tolerance, loss reserves, and how much exposure your organization carries."))),
+
+      // ======== ACT 2 ========
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
+        h(SLabel,{n:"2",label:"The Tool"}),
+
+        // STEP 1
+        h(StepLabel,{label:"Step 1: Define a Risk",color:C.danger}),
+        h('div',{style:{fontFamily:serif,fontSize:mb?13:14,color:C.textDim,marginBottom:16,maxWidth:680}},
+          "Enter three-point estimates for how often this risk occurs per year and how much each event costs. The defaults represent a risk that hits a few times a year with seven-figure consequences, the kind of scenario that keeps a CISO up at night. Adjust them to match your situation, or just run with the defaults to learn the concept."),
+        h('div',{style:{display:"grid",gridTemplateColumns:mb?"1fr":"1fr 1fr",gap:16,marginBottom:24,maxWidth:680}},
+          h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"12px":"14px 18px"}},
+            h(ThreePoint,{label:"Frequency (events per year)",vals:freqVals,onVals:setFreqVals,isMobile:mb})),
+          h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"12px":"14px 18px"}},
+            h(ThreePoint,{label:"Loss per event ($)",vals:magVals,onVals:setMagVals,isDollar:true,isMobile:mb}))),
+        h('div',{style:{marginBottom:32}},
+          h('button',{onClick:handleRun,style:{
+            padding:mb?"14px 32px":"12px 32px",background:C.accent,color:"#000",border:"none",
+            borderRadius:8,fontSize:mb?14:13,fontWeight:700,cursor:"pointer",letterSpacing:"0.03em",
+            boxShadow:"0 0 20px rgba(245,158,11,0.25)"
+          }},results?"Re-Run 10,000 Simulations":"Run 10,000 Simulations")),
+
+        // STEP 2: Histogram
+        phase!=="input"&&h('div',{className:"fade-in"},
+          h(StepLabel,{label:"Step 2: The Histogram",color:C.accent}),
+          h('div',{style:{fontFamily:serif,fontSize:mb?13:14,color:C.textDim,marginBottom:16,maxWidth:680}},
+            "Here are 10,000 simulated years of annual loss from this risk. Each bar shows how many simulations landed in that loss range. You can see the shape, but try answering a specific question like \u201CWhat are the odds we lose more than $5 million?\u201D The histogram makes that hard. The exceedance curve makes it easy."),
+          stats&&h('div',{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16,maxWidth:400}},
+            ...[
+              {label:"Median (P50)",value:stats.p50===0?"No loss":fmtD(stats.p50),color:C.textMuted},
+              {label:"Average",value:fmtD(stats.mean),color:C.textMuted},
+              {label:"Bad Year (P90)",value:fmtD(stats.p90),color:C.accent},
+            ].map(s=>h('div',{key:s.label,style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:6,padding:"8px 10px",textAlign:"center"}},
+              h('div',{style:{fontFamily:mono,fontSize:mb?14:15,fontWeight:700,color:s.color}},s.value),
+              h('div',{style:{fontFamily:mono,fontSize:9,color:C.textDim,marginTop:2}},s.label)))),
+          h(HistogramChart,{results,isMobile:mb}),
+          phase==="histogram"&&h('div',{style:{textAlign:"center",marginTop:20}},
+            h('button',{onClick:handleShowLEC,style:{
+              padding:"12px 28px",background:C.accent,color:"#000",border:"none",
+              borderRadius:8,fontSize:mb?13:13,fontWeight:700,cursor:"pointer",letterSpacing:"0.03em",
+              boxShadow:"0 0 20px rgba(245,158,11,0.25)"
+            }},"\u2192 Transform into Exceedance Curve"))),
+
+        // STEP 3: LEC
+        phase==="lec"&&h('div',{ref:lecRef,className:"fade-in"},
+          h(StepLabel,{label:"Step 3: The Loss Exceedance Curve",color:C.accent}),
+          h('div',{style:{fontFamily:serif,fontSize:mb?13:14,color:C.textDim,marginBottom:16,maxWidth:680}},
+            "Same 10,000 simulations, different question. Instead of \u201CHow many years landed here?\u201D the curve answers \u201CWhat percentage of years exceeded this amount?\u201D The left side starts high (most years have some loss). The curve drops as you move right, because fewer simulated years reached those higher totals."),
+          h(LECChart,{lecData,anchors,rawResults:results,isMobile:mb,stats,customName}),
+
+          h('div',{style:{background:C.accent+"0D",border:"1px solid "+C.accent+"22",borderRadius:8,padding:mb?"12px":"14px 18px",marginTop:16,marginBottom:28,maxWidth:680,fontFamily:mono,fontSize:mb?10:11,color:C.textDim,lineHeight:1.6}},
+            h('span',{style:{color:C.accent,fontWeight:600}},"HOW TO READ IT. "),
+            mb
+              ?"Tap and drag across the curve. Every point you touch is a probability statement: the percentage on the left axis is the chance that annual losses meet or exceed the dollar amount below your finger. The P90 marker means 10% of simulated years exceeded that point."
+              :"Move your mouse across the curve. Every point is a probability statement, shown in the readout above the chart. The percentage on the left axis is the chance that annual losses meet or exceed the dollar amount on the bottom axis. The P90 marker means 10% of simulated years exceeded that point."),
+
+          // STEP 4: Anchors
+          h(StepLabel,{label:"Step 4: Add Your Thresholds",color:C.success}),
+          h('div',{style:{fontFamily:serif,fontSize:mb?13:14,color:C.textDim,marginBottom:16,maxWidth:680}},
+            "The curve becomes decision support when you drop real dollar thresholds onto it. Sample values are pre-filled below to get you started. Adjust them to match your organization, clear any that do not apply, and watch the curve update. Each threshold generates a sentence you could put directly into a board presentation. Type dollar amounts like 5M, 500K, or 10000000."),
+
+          h('div',{style:{maxWidth:680}},
+            h(AnchorInput,{label:"Risk Tolerance",description:"The maximum annual loss your organization is willing to accept from this risk without further action.",
+              color:"#EF4444",value:tolerance,onChange:setTolerance,
+              prob:tolerance>0?exceedanceAt(results,tolerance):null,isMobile:mb}),
+            h(AnchorInput,{label:"Loss Reserve / Budget",description:"How much your organization has set aside for this risk this year. Are you reserving enough?",
+              color:"#3B82F6",value:reserve,onChange:setReserve,
+              prob:reserve>0?exceedanceAt(results,reserve):null,isMobile:mb}),
+            h(AnchorInput,{label:"Materiality Threshold",description:"The annual loss amount that triggers board notification, SEC disclosure, or regulatory reporting.",
+              color:"#F97316",value:materiality,onChange:setMateriality,
+              prob:materiality>0?exceedanceAt(results,materiality):null,isMobile:mb}),
+            h('div',{style:{marginTop:8,marginBottom:4}},
+              h('input',{type:"text",placeholder:"Name your threshold (e.g. Budget Cap, Reinsurance Attachment)",value:customName==="Custom Threshold"?"":customName,
+                onChange:e=>setCustomName(e.target.value||"Custom Threshold"),
+                style:{fontFamily:mono,fontSize:mb?11:12,background:"transparent",color:C.textMuted,border:"none",borderBottom:"1px solid "+C.borderLight,padding:"4px 0",width:mb?"100%":340,outline:"none"}})),
+            h(AnchorInput,{label:customName,description:"Your own threshold. Name it above, enter a dollar amount, and see where it falls on the curve.",
+              color:"#A855F7",value:custom,onChange:setCustom,
+              prob:custom>0?exceedanceAt(results,custom):null,isMobile:mb})),
+
+          // Reading guide with anchors
+          (tolerance>0||reserve>0||materiality>0||custom>0)&&h('div',{className:"fade-in",style:{
+            background:C.accent+"0D",border:"1px solid "+C.accent+"22",borderRadius:8,
+            padding:mb?"12px":"14px 18px",marginTop:20,marginBottom:16,maxWidth:680
+          }},
+            h('div',{style:{fontFamily:mono,fontSize:mb?11:12,fontWeight:600,color:C.accent,marginBottom:10}},"READING THE CURVE WITH YOUR THRESHOLDS"),
+            h('div',{style:{fontFamily:serif,fontSize:mb?13:14,color:C.textMuted,lineHeight:1.7}},
+              h('p',{style:{marginBottom:8}},
+                "Each colored dashed line on the chart represents one of your thresholds. To read any one of them: find the dashed vertical line, follow it up to where it hits the curve, then follow the horizontal dashed line left to the vertical axis. The number on the vertical axis is the probability that this risk will produce annual losses at or above that threshold."),
+              h('p',{style:{marginBottom:8}},
+                "The colored percentage on the left axis is your answer. If it says 30% next to your risk tolerance line, that means 30% of the 10,000 simulated years produced losses at or above your tolerance. In plainer terms: roughly one year in three, this risk hits harder than you said you were willing to accept."),
+              tolerance>0&&reserve>0&&h('p',null,
+                "Compare your risk tolerance to your loss reserve. If the reserve is well below the tolerance, you have a cushion. If the curve shows a high probability of exceeding the reserve but a low probability of exceeding the tolerance, you know the reserve will be tested but the overall exposure remains acceptable. That is decision support: not \u201Cis this risk bad?\u201D but \u201Cis our financial positioning adequate for the exposure?\u201D"))),
+
+          h('div',{style:{textAlign:"center",marginTop:20}},
+            h('button',{onClick:()=>setPhase("histogram"),style:{
+              padding:"10px 24px",background:"transparent",color:C.accent,border:"1px solid "+C.accent,
+              borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer"
+            }},"\u2190 Back to Histogram")))),
+
+      // ======== ACT 3 ========
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:(mb?32:48)+"px "+pd+"px 0"}},
+        h(SLabel,{n:"3",label:"The Takeaway",color:C.success}),
+        h('div',{style:{maxWidth:680,fontFamily:serif,fontSize:mb?15:16,lineHeight:1.75,color:C.textMuted}},
+          h('p',{style:{marginBottom:16}},
+            "A loss exceedance curve does not tell you what to do. It tells you the odds so you can decide. It turns \u201CI think this risk is bad\u201D into \u201CThere is a 23% chance this risk exceeds our risk tolerance and a 6% chance it crosses our materiality threshold.\u201D This is where the interesting conversations about organizational risk start."),
+          h('p',{style:{marginBottom:16}},
+            "This tool builds a curve for a single risk, which is where most practitioners start. In practice, you can also build an aggregated curve that combines every risk in the portfolio into one view. The same four thresholds work on the aggregated curve, and that is typically what goes in front of the board: \u201CHow likely is it that our total cyber risk exposure exceeds our risk tolerance this year?\u201D The math is the same; the only difference is that aggregation requires you to think about whether your risks are correlated, because three $1M risks do not automatically sum to $3M."),
+          h('p',null,
+            "The curve is built from the same Monte Carlo simulation you saw in the histogram. No new math is required, just a different way of reading the same output. Once you have it, every dollar threshold your organization cares about can be plotted on it, and every stakeholder can read the answer they need.")),
+
+        h('div',{style:{display:"flex",gap:12,marginTop:32,flexWrap:"wrap",fontFamily:mono,fontSize:12}},
+          h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:{padding:"10px 20px",borderRadius:6,background:C.accent,color:"#000",fontWeight:600,textDecoration:"none",letterSpacing:"0.03em"}},"Order the Book"),
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{padding:"10px 20px",borderRadius:6,background:"transparent",color:C.accent,border:"1px solid "+C.accent,textDecoration:"none",letterSpacing:"0.03em"}},"Book Site"),
+          h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:{padding:"10px 20px",borderRadius:6,background:"transparent",color:C.accent,border:"1px solid "+C.accent,textDecoration:"none",letterSpacing:"0.03em"}},"Newsletter"))),
+
+      // Disclaimer
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:"32px "+pd+"px 0"}},
+        h('div',{style:{background:C.accent+"08",border:"1px solid "+C.accent+"22",borderRadius:8,padding:"14px 18px",fontFamily:mono,fontSize:11,color:C.textDim,lineHeight:1.6}},
+          h('span',{style:{color:C.accent,fontWeight:600}},"A NOTE ON THIS TOOL. "),
+          "This is a teaching demo, not a production risk model. The pre-loaded values represent a risk that hits a few times a year with seven-figure consequences, not industry benchmarks. ",
+          "The simulation uses PERT distributions, which have hard upper bounds; real cyber losses often follow fat-tailed distributions (lognormal, log-logistic) where the maximum is not capped, so this tool structurally underestimates tail risk. ",
+          "10,000 iterations is sufficient for learning; production models typically run 50,000\u2013100,000 for more stable tail estimates. ",
+          "Dollar inputs accept shorthand: 500K, 5M, 1.5B.")),
+
+      h(Footer,{isMobile:mb}));
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+  </script>
+</body>
+</html>
