@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FAIR Model Study Tool: Interactive Memorization for FAIR Certification</title>
+  <meta name="description" content="Master the FAIR model taxonomy with this interactive drag-and-drop study tool. Build the decomposition tree from memory. A companion tool for From Heatmaps to Histograms by Tony Martin-Vegue." />
+  <meta name="author" content="Tony Martin-Vegue" />
+  <meta name="robots" content="index, follow" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="FAIR Model Study Tool: Interactive Memorization for FAIR Certification" />
+  <meta property="og:description" content="Build the FAIR decomposition tree from memory. Place components, assign units, master the model." />
+  <meta property="og:site_name" content="From Heatmaps to Histograms" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="FAIR Model Study Tool" />
+  <meta name="twitter:description" content="Build the FAIR decomposition tree from memory." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0B1120;font-family:'Source Serif 4',Georgia,serif}
+    ::selection{background:#F59E0B;color:#000}
+    a:hover{opacity:0.85}
+    button{font-family:'IBM Plex Mono',monospace}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes correctPop{0%{transform:scale(1)}50%{transform:scale(1.08)}100%{transform:scale(1)}}
+    @keyframes wrongShake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-5px)}40%,80%{transform:translateX(5px)}}
+    @keyframes glowPulse{0%,100%{box-shadow:0 0 8px rgba(245,158,11,0.3)}50%{box-shadow:0 0 16px rgba(245,158,11,0.5)}}
+    .pop-correct{animation:correctPop 0.35s ease-out}
+    .shake-wrong{animation:wrongShake 0.35s ease-out}
+    .glow-active{animation:glowPulse 1.5s ease-in-out infinite}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script>
+  'use strict';
+  var h=React.createElement,useState=React.useState,useEffect=React.useEffect,useCallback=React.useCallback,useRef=React.useRef;
+
+  var C={bg:"#0B1120",bgCard:"#111827",border:"#1E293B",borderLight:"#334155",text:"#E2E8F0",textMuted:"#94A3B8",textDim:"#64748B",accent:"#F59E0B",accentGlow:"rgba(245,158,11,0.15)",danger:"#EF4444",dangerMuted:"rgba(239,68,68,0.2)",success:"#10B981"};
+  var mono="'IBM Plex Mono',monospace";
+  var serif="'Source Serif 4',Georgia,serif";
+  var LINE_COLOR="#334155";
+
+  function useIsMobile(bp){var s=useState(false),m=s[0],set=s[1];useEffect(function(){function c(){set(window.innerWidth<(bp||768))}c();window.addEventListener("resize",c);return function(){window.removeEventListener("resize",c)};},[bp]);return m;}
+
+  // ============================================================
+  // FAIR MODEL DATA — V3.0, January 2025
+  // ============================================================
+  var NODES={
+    risk:{id:"risk",abbr:"Risk",name:"Risk",def:"The probable frequency and probable magnitude of future loss",unit:"$",children:["lef","lm"]},
+    lef:{id:"lef",abbr:"LEF",name:"Loss Event Frequency",def:"The probable frequency that a threat agent's actions will inflict harm upon an asset",unit:"#",children:["tef","susc"]},
+    lm:{id:"lm",abbr:"LM",name:"Loss Magnitude",def:"The probable magnitude of loss resulting from a loss event",unit:"$",children:["pl","sl"]},
+    tef:{id:"tef",abbr:"TEF",name:"Threat Event Frequency",def:"The probable frequency that a threat agent will act in a manner that may result in loss",unit:"#",children:["cf","poa"]},
+    susc:{id:"susc",abbr:"Susc",name:"Susceptibility",def:"The probability that a threat event will become a loss event",unit:"%",children:["tcap","rs"]},
+    pl:{id:"pl",abbr:"PL",name:"Primary Loss",def:"Loss that occurs directly as a result of the loss event",unit:"$",children:[]},
+    sl:{id:"sl",abbr:"SL",name:"Secondary Loss",def:"Loss that occurs indirectly from a loss event due to secondary stakeholder reactions",unit:"$",children:["slef","slm"]},
+    cf:{id:"cf",abbr:"CF",name:"Contact Frequency",def:"The frequency a threat agent will come into contact with an asset",unit:"#",children:[]},
+    poa:{id:"poa",abbr:"PoA",name:"Probability of Action",def:"The probability a threat agent will act against an asset once contact has occurred",unit:"%",children:[]},
+    tcap:{id:"tcap",abbr:"TCap",name:"Threat Capability",def:"A threat agent's ability to defeat resistive controls",unit:"%",children:[]},
+    rs:{id:"rs",abbr:"RS",name:"Resistance Strength",def:"The efficacy of resistive controls against the overall threat population",unit:"%",children:[]},
+    slef:{id:"slef",abbr:"SLEF",name:"Sec. Loss Event Freq.",def:"The percentage of loss events expected to have secondary effects",unit:"%",children:[]},
+    slm:{id:"slm",abbr:"SLM",name:"Sec. Loss Magnitude",def:"How much loss is expected from secondary stakeholder reactions",unit:"$",children:[]},
+  };
+  var ALL_IDS=["risk","lef","lm","tef","susc","pl","sl","cf","poa","tcap","rs","slef","slm"];
+
+  var FORMS_OF_LOSS=[
+    {name:"Productivity Loss",def:"Reduction in organizational efficiency and effectiveness due to the loss event"},
+    {name:"Response Costs",def:"Expenses incurred while addressing and mitigating the effects of a loss event"},
+    {name:"Replacement Costs",def:"Expenditures related to restoring or replacing lost or damaged assets"},
+    {name:"Fines and Judgments",def:"Financial penalties and legal settlements from regulatory violations or lawsuits"},
+    {name:"Reputation Damage",def:"Long-term impact on the organization's brand and customer trust"},
+    {name:"Competitive Advantage Loss",def:"When the loss event undermines the organization's market position or strategic initiatives"},
+  ];
+
+  var POA_SUBFACTORS=[
+    {name:"Perceived Value",def:"The value the threat agent believes they will gain by acting against the asset"},
+    {name:"Level of Effort",def:"The amount of work and resources the threat agent believes will be required to act"},
+    {name:"Risk to Threat Agent",def:"The probability and severity of negative consequences the threat agent faces from acting"},
+  ];
+
+  // Unified quiz pool: 13 components + 6 forms of loss + 3 PoA sub-factors = 22 items
+  var QUIZ_ITEMS=[];
+  ALL_IDS.forEach(function(id){
+    var n=NODES[id];
+    QUIZ_ITEMS.push({qid:"node_"+id,name:n.abbr+" \u2013 "+n.name,def:n.def,cat:"component",unit:n.unit});
+  });
+  FORMS_OF_LOSS.forEach(function(f,i){
+    QUIZ_ITEMS.push({qid:"fol_"+i,name:f.name,def:f.def,cat:"form_of_loss",unit:null});
+  });
+  POA_SUBFACTORS.forEach(function(f,i){
+    QUIZ_ITEMS.push({qid:"poa_"+i,name:f.name,def:f.def,cat:"poa_sub",unit:null});
+  });
+  var ALL_QIDS=QUIZ_ITEMS.map(function(q){return q.qid;});
+  var QMAP={};QUIZ_ITEMS.forEach(function(q){QMAP[q.qid]=q;});
+
+  var CAT_COLORS={component:C.success,form_of_loss:"#A855F7",poa_sub:"#3B82F6"};
+  var CAT_LABELS={component:"Model Component",form_of_loss:"Form of Loss",poa_sub:"PoA Sub-factor"};
+
+  var UNIT_MAP={"$":{color:"#10B981",label:"Dollars"},"%":{color:"#3B82F6",label:"Probability"},"#":{color:"#F59E0B",label:"Frequency"}};
+
+  function shuffle(a){var b=a.slice();for(var i=b.length-1;i>0;i--){var j=0|Math.random()*(i+1);var t=b[i];b[i]=b[j];b[j]=t;}return b;}
+
+  // ============================================================
+  // HEADER / FOOTER
+  // ============================================================
+  function Header(p){
+    var mb=p.mb,ls={fontFamily:mono,fontSize:11,color:C.textMuted,textDecoration:"none",marginLeft:20};
+    return h('div',{style:{borderBottom:"1px solid "+C.border,padding:mb?"12px 16px":"14px 32px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap"}},
+      h('div',null,
+        h('a',{href:"https://www.heatmapstohistograms.com/",style:{fontFamily:mono,fontSize:mb?10:11,color:C.accent,textDecoration:"none",letterSpacing:"0.08em"}},"FROM HEATMAPS TO HISTOGRAMS"),
+        h('div',{style:{fontFamily:mono,fontSize:mb?10:11,color:C.textDim,marginTop:2}},"Interactive Tools \xB7 Tony Martin-Vegue")),
+      !mb&&h('div',null,
+        h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:ls},"Book"),
+        h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:ls},"Newsletter"),
+        h('a',{href:"https://www.95risk.com",style:ls},"95 Risk Advisory")));
+  }
+  function Footer(p){
+    var mb=p.mb,ls={fontFamily:mono,fontSize:11,color:C.textMuted,textDecoration:"none",marginRight:mb?0:20,marginBottom:mb?6:0};
+    return h('div',{style:{borderTop:"1px solid "+C.border,padding:mb?"20px 16px":"20px 32px",display:"flex",flexDirection:mb?"column":"row",alignItems:"center",justifyContent:"space-between",marginTop:40}},
+      h('div',{style:{textAlign:mb?"center":"left",marginBottom:mb?12:0}},
+        h('div',{style:{fontFamily:mono,fontSize:11,color:C.accent,letterSpacing:"0.08em"}},"FROM HEATMAPS TO HISTOGRAMS"),
+        h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim,marginTop:2}},"Tony Martin-Vegue \xB7 Apress")),
+      h('div',{style:{display:"flex",flexDirection:mb?"column":"row",alignItems:"center",gap:mb?6:0}},
+        h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:ls},"Order"),
+        h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:ls},"Newsletter"),
+        h('a',{href:"https://www.heatmapstohistograms.com/",style:ls},"Book Site"),
+        h('a',{href:"https://www.95risk.com",style:ls},"Consulting")));
+  }
+  function SectionLabel(p){
+    return h('div',{style:{display:"flex",alignItems:"center",gap:10,marginBottom:16}},
+      h('div',{style:{width:32,height:32,borderRadius:"50%",background:p.color,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:mono,fontSize:13,fontWeight:700,color:"#000"}},p.n),
+      h('span',{style:{fontFamily:mono,fontSize:12,color:p.color,letterSpacing:"0.1em"}},p.label));
+  }
+
+  // ============================================================
+  // UNIT BADGE
+  // ============================================================
+  function UnitBadge(p){
+    var u=UNIT_MAP[p.unit],sz=p.size||24,fs=p.fs||12;
+    return h('div',{style:{width:sz,height:sz,borderRadius:"50%",background:u.color+"22",border:"2px solid "+u.color,display:"inline-flex",alignItems:"center",justifyContent:"center",fontFamily:mono,fontSize:fs,fontWeight:700,color:u.color,flexShrink:0}},p.unit);
+  }
+
+  // ============================================================
+  // RECURSIVE TREE WITH BRANCH LINES
+  // ============================================================
+  // This renders a node and recursively its children, with proper
+  // T-shaped connector lines between parent and children.
+
+  function TreeBranch(p){
+    var nodeId=p.nodeId,renderNode=p.renderNode,mb=p.mb;
+    var node=NODES[nodeId];
+    var children=node.children;
+    var vH=mb?20:28; // vertical connector height
+
+    // Leaf node — just render the node
+    if(children.length===0){
+      return h('div',{style:{display:"flex",flexDirection:"column",alignItems:"center"}},
+        renderNode(nodeId));
+    }
+
+    // Parent with children
+    return h('div',{style:{display:"flex",flexDirection:"column",alignItems:"center"}},
+      // The node itself
+      renderNode(nodeId),
+      // Vertical line down from parent
+      h('div',{style:{width:2,height:vH,background:LINE_COLOR,flexShrink:0}}),
+      // Children row with horizontal connector
+      h('div',{style:{display:"flex",alignItems:"flex-start"}},
+        children.map(function(cid,i){
+          return h('div',{key:cid,style:{display:"flex",flexDirection:"column",alignItems:"center",position:"relative",margin:"0 "+(mb?2:4)+"px"}},
+            // Horizontal connector segment
+            // First child: right half. Last child: left half. Middle: full width.
+            children.length>1&&h('div',{style:{
+              position:"absolute",top:0,height:2,background:LINE_COLOR,
+              left:i===0?"50%":"0",
+              right:i===children.length-1?"50%":"0"
+            }}),
+            // Vertical line down to child
+            h('div',{style:{width:2,height:vH,background:LINE_COLOR,flexShrink:0}}),
+            // Recurse
+            h(TreeBranch,{nodeId:cid,renderNode:renderNode,mb:mb}));
+        })));
+  }
+
+  // ============================================================
+  // STUDY MODE
+  // ============================================================
+  function StudyNodeBox(p){
+    var mb=p.mb,node=NODES[p.id];
+    return h('div',{style:{
+      background:C.bgCard,border:"2px solid "+C.success+"88",borderRadius:10,
+      padding:mb?"8px 6px":"10px 12px",
+      width:mb?105:150,textAlign:"center"
+    }},
+      h('div',{style:{display:"flex",alignItems:"center",justifyContent:"center",gap:5,marginBottom:3}},
+        h('span',{style:{fontFamily:mono,fontSize:mb?14:17,fontWeight:700,color:C.text}},node.abbr),
+        h(UnitBadge,{unit:node.unit,size:mb?20:24,fs:mb?10:12})),
+      h('div',{style:{fontFamily:mono,fontSize:mb?7:9,color:C.textDim,lineHeight:1.3}},node.name));
+  }
+
+  function StudyTree(p){
+    var mb=p.mb;
+    function renderNode(id){return h(StudyNodeBox,{id:id,mb:mb});}
+    return h('div',{style:{display:"flex",justifyContent:"center",overflowX:"auto",padding:"8px 0"}},
+      h(TreeBranch,{nodeId:"risk",renderNode:renderNode,mb:mb}));
+  }
+
+  // ============================================================
+  // PRACTICE MODE — INTERLEAVED COMPONENT + UNIT PLACEMENT
+  // ============================================================
+  function PracticeMode(p){
+    var mb=p.mb,onReset=p.onReset;
+
+    // What's placed where
+    var s1=useState({}),placed=s1[0],setPlaced=s1[1];           // {slotId: true}
+    var s2=useState({}),units=s2[0],setUnits=s2[1];             // {slotId: "$"|"%"|"#"}
+    var s3=useState(function(){return shuffle(ALL_IDS);}),pool=s3[0],setPool=s3[1];
+    var s4=useState(null),selected=s4[0],setSelected=s4[1];     // nodeId picked from pool
+    var s5=useState(null),unitTarget=s5[0],setUnitTarget=s5[1]; // slotId awaiting unit
+    var s6=useState({}),slotFb=s6[0],setSlotFb=s6[1];           // {slotId: "correct"|"wrong"}
+    var s7=useState(0),compScore=s7[0],setCompScore=s7[1];
+    var s8=useState(0),compTries=s8[0],setCompTries=s8[1];
+    var s9=useState(0),unitScore=s9[0],setUnitScore=s9[1];
+    var s10=useState(0),unitTries=s10[0],setUnitTries=s10[1];
+
+    var allDone=Object.keys(units).length>=ALL_IDS.length;
+    var placedCount=Object.keys(placed).length;
+    var unitCount=Object.keys(units).length;
+
+    function flash(slotId,type){
+      setSlotFb(function(f){var n={};for(var k in f)n[k]=f[k];n[slotId]=type;return n;});
+      setTimeout(function(){
+        setSlotFb(function(f){var n={};for(var k in f)n[k]=f[k];delete n[slotId];return n;});
+      },450);
+    }
+
+    // Tap a component in the pool
+    function pickFromPool(id){
+      if(unitTarget) return; // busy assigning a unit
+      setSelected(function(prev){return prev===id?null:id;});
+    }
+
+    // Tap an empty slot to place the selected component
+    function tapSlot(slotId){
+      if(unitTarget) return;
+      if(placed[slotId]) return;
+      if(!selected) return;
+
+      setCompTries(function(t){return t+1;});
+
+      if(selected===slotId){
+        // Correct!
+        setCompScore(function(s){return s+1;});
+        setPlaced(function(p){var n={};for(var k in p)n[k]=p[k];n[slotId]=true;return n;});
+        setPool(function(pp){return pp.filter(function(id){return id!==selected;});});
+        flash(slotId,"correct");
+        setSelected(null);
+        // Immediately prompt for unit
+        setUnitTarget(slotId);
+      } else {
+        flash(slotId,"wrong");
+      }
+    }
+
+    // Tap a unit button while unitTarget is active
+    function tapUnit(symbol){
+      if(!unitTarget) return;
+      var correctUnit=NODES[unitTarget].unit;
+      setUnitTries(function(t){return t+1;});
+
+      if(symbol===correctUnit){
+        setUnitScore(function(s){return s+1;});
+        setUnits(function(u){var n={};for(var k in u)n[k]=u[k];n[unitTarget]=symbol;return n;});
+        flash(unitTarget,"correct");
+        setUnitTarget(null);
+      } else {
+        flash(unitTarget,"wrong");
+      }
+    }
+
+    // Render a single node in the tree
+    function renderNode(slotId){
+      var node=NODES[slotId];
+      var isFilled=placed[slotId];
+      var hasUnit=units[slotId];
+      var isUnitTarget=unitTarget===slotId;
+      var fb=slotFb[slotId];
+      var isEmpty=!isFilled;
+      var isClickable=isEmpty&&selected&&!unitTarget;
+
+      // Border color
+      var bColor=C.borderLight;
+      if(fb==="correct") bColor=C.success;
+      else if(fb==="wrong") bColor=C.danger;
+      else if(isUnitTarget) bColor=C.accent;
+      else if(isFilled&&hasUnit) bColor=C.success+"88";
+      else if(isFilled) bColor=C.accent+"88";
+
+      // Class for animation
+      var cls="";
+      if(fb==="correct") cls="pop-correct";
+      else if(fb==="wrong") cls="shake-wrong";
+      else if(isUnitTarget&&!fb) cls="glow-active";
+
+      var w=mb?105:150;
+
+      return h('div',{
+        key:slotId,
+        className:cls,
+        onClick:function(){if(isEmpty)tapSlot(slotId);},
+        style:{
+          background:isFilled?C.bgCard:C.bg,
+          border:"2px "+(isEmpty?"dashed":"solid")+" "+bColor,
+          borderRadius:10,
+          padding:mb?"8px 4px":"10px 8px",
+          width:w,
+          minHeight:mb?50:62,
+          textAlign:"center",
+          cursor:isClickable?"pointer":"default",
+          transition:"border-color 0.2s, box-shadow 0.2s",
+          display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"
+        }
+      },
+        // EMPTY SLOT
+        isEmpty&&h('div',{style:{fontFamily:mono,fontSize:mb?10:12,color:C.textDim}},"\u2022 \u2022 \u2022"),
+
+        // FILLED — waiting for unit assignment (show unit buttons)
+        isFilled&&isUnitTarget&&h('div',null,
+          h('div',{style:{display:"flex",alignItems:"center",justifyContent:"center",gap:4,marginBottom:6}},
+            h('span',{style:{fontFamily:mono,fontSize:mb?14:17,fontWeight:700,color:C.text}},node.abbr)),
+          h('div',{style:{fontFamily:mono,fontSize:mb?7:8,color:C.textDim,marginBottom:6}},node.name),
+          h('div',{style:{display:"flex",gap:6,justifyContent:"center"}},
+            ["$","%","#"].map(function(u){
+              var uc=UNIT_MAP[u];
+              return h('button',{
+                key:u,
+                onClick:function(e){e.stopPropagation();tapUnit(u);},
+                style:{
+                  width:mb?30:36,height:mb?30:36,borderRadius:"50%",
+                  background:uc.color+"22",border:"2px solid "+uc.color,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontFamily:mono,fontSize:mb?13:15,fontWeight:700,color:uc.color,
+                  cursor:"pointer",transition:"transform 0.1s"
+                }
+              },u);
+            }))),
+
+        // FILLED — unit assigned (complete)
+        isFilled&&!isUnitTarget&&hasUnit&&h('div',null,
+          h('div',{style:{display:"flex",alignItems:"center",justifyContent:"center",gap:4}},
+            h('span',{style:{fontFamily:mono,fontSize:mb?14:17,fontWeight:700,color:C.text}},node.abbr),
+            h(UnitBadge,{unit:hasUnit,size:mb?20:24,fs:mb?10:12})),
+          h('div',{style:{fontFamily:mono,fontSize:mb?7:9,color:C.textDim,marginTop:2}},node.name)),
+
+        // FILLED — no unit yet, but not the current target (shouldn't happen in normal flow, but just in case)
+        isFilled&&!isUnitTarget&&!hasUnit&&h('div',null,
+          h('div',{style:{fontFamily:mono,fontSize:mb?14:17,fontWeight:700,color:C.text}},node.abbr),
+          h('div',{style:{fontFamily:mono,fontSize:mb?7:9,color:C.textDim,marginTop:2}},node.name)));
+    }
+
+    // Instruction text
+    var instrText="";
+    var instrColor=C.accent;
+    if(allDone){
+      instrText="\u2713 Complete! You built the full FAIR model from memory.";
+      instrColor=C.success;
+    } else if(unitTarget){
+      instrText="Now assign the correct unit ($, %, #) to "+NODES[unitTarget].abbr;
+      instrColor=C.accent;
+    } else if(selected){
+      instrText="Tap the correct position for "+NODES[selected].abbr+" ("+NODES[selected].name+")";
+      instrColor=C.text;
+    } else {
+      instrText="Select a component from the pool below";
+      instrColor=C.textMuted;
+    }
+
+    return h('div',null,
+      // Score
+      h('div',{style:{display:"flex",gap:16,justifyContent:"center",marginBottom:8,flexWrap:"wrap"}},
+        h('div',{style:{fontFamily:mono,fontSize:11,color:C.textMuted}},
+          "Components: ",h('span',{style:{color:C.success,fontWeight:700}},placedCount),"/13",
+          compTries>0?(" \xB7 "+Math.round(compScore/compTries*100)+"%"):""),
+        h('div',{style:{fontFamily:mono,fontSize:11,color:C.textMuted}},
+          "Units: ",h('span',{style:{color:C.success,fontWeight:700}},unitCount),"/13",
+          unitTries>0?(" \xB7 "+Math.round(unitScore/unitTries*100)+"%"):"")),
+
+      // Instruction
+      h('div',{style:{textAlign:"center",marginBottom:14,fontFamily:mono,fontSize:mb?11:13,color:instrColor,fontWeight:600,minHeight:20}},instrText),
+
+      // Tree
+      h('div',{style:{display:"flex",justifyContent:"center",overflowX:"auto",padding:"8px 0"}},
+        h(TreeBranch,{nodeId:"risk",renderNode:renderNode,mb:mb})),
+
+      // Component pool
+      !allDone&&h('div',{style:{marginTop:20,padding:mb?"10px":"14px 18px",background:C.bgCard,borderRadius:10,border:"1px solid "+C.border,opacity:unitTarget?0.4:1,transition:"opacity 0.2s",pointerEvents:unitTarget?"none":"auto"}},
+        h('div',{style:{fontFamily:mono,fontSize:9,color:C.textDim,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}},"COMPONENT POOL"),
+        pool.length>0
+          ? h('div',{style:{display:"flex",flexWrap:"wrap",gap:6,justifyContent:"center"}},
+              pool.map(function(id){
+                var node=NODES[id];
+                var isSel=selected===id;
+                return h('button',{
+                  key:id,
+                  onClick:function(){pickFromPool(id);},
+                  style:{
+                    background:isSel?C.accent+"22":C.bg,
+                    border:"2px solid "+(isSel?C.accent:C.borderLight),
+                    borderRadius:8,
+                    padding:mb?"6px 8px":"8px 12px",
+                    cursor:"pointer",
+                    fontFamily:mono,fontSize:mb?10:11,
+                    color:isSel?C.accent:C.text,
+                    fontWeight:isSel?700:500,
+                    transition:"all 0.15s",
+                    boxShadow:isSel?"0 0 12px "+C.accentGlow:"none"
+                  }
+                },
+                  h('span',{style:{fontWeight:700}},node.abbr),
+                  h('span',{style:{fontSize:mb?8:9,color:C.textDim,marginLeft:4}},node.name));
+              }))
+          : h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim,textAlign:"center",padding:8}},"All components placed! Finish assigning units.")),
+
+      // Done state
+      allDone&&h('div',{style:{marginTop:20,textAlign:"center",padding:16,background:C.bgCard,borderRadius:10,border:"1px solid "+C.success+"44"}},
+        h('div',{style:{fontSize:28,marginBottom:6}},"\uD83C\uDF89"),
+        h('div',{style:{fontFamily:mono,fontSize:14,color:C.text,marginBottom:4}},"FAIR Model Complete!"),
+        h('div',{style:{fontFamily:mono,fontSize:11,color:C.textMuted,marginBottom:12}},
+          "Components: "+Math.round(compScore/compTries*100)+"% \xB7 Units: "+Math.round(unitScore/unitTries*100)+"%"),
+        h('button',{onClick:onReset,style:{background:C.accent,color:"#000",border:"none",borderRadius:6,padding:"10px 24px",fontFamily:mono,fontSize:12,fontWeight:600,cursor:"pointer"}},"Practice Again")));
+  }
+
+  // ============================================================
+  // FORMS OF LOSS — REFERENCE ONLY (study mode)
+  // (StudyReference removed — quiz covers all definitions directly)
+
+  // ============================================================
+  // DEFINITIONS QUIZ — 22 items, always visible
+  // ============================================================
+  function DefinitionsQuiz(p){
+    var mb=p.mb;
+    var TOTAL=QUIZ_ITEMS.length;
+    var s1=useState(true),active=s1[0],setActive=s1[1];
+    var s2=useState(function(){return shuffle(ALL_QIDS.slice());}),defCards=s2[0],setDefCards=s2[1];
+    var s3=useState(function(){return shuffle(ALL_QIDS.slice());}),namePool=s3[0],setNamePool=s3[1];
+    var s4=useState({}),matched=s4[0],setMatched=s4[1];
+    var s5=useState(null),selId=s5[0],setSelId=s5[1];
+    var s6=useState({}),fb=s6[0],setFb=s6[1];
+    var s7=useState(0),correct=s7[0],setCorrect=s7[1];
+    var s8=useState(0),tries=s8[0],setTries=s8[1];
+
+    function startQuiz(){
+      setActive(true);
+      setDefCards(shuffle(ALL_QIDS.slice()));
+      setNamePool(shuffle(ALL_QIDS.slice()));
+      setMatched({});setSelId(null);setFb({});
+      setCorrect(0);setTries(0);
+    }
+
+    function tapCard(qid){
+      if(!selId) return;
+      if(matched[qid]) return;
+      setTries(function(t){return t+1;});
+      if(selId===qid){
+        setCorrect(function(c){return c+1;});
+        setMatched(function(m){var n={};for(var k in m)n[k]=m[k];n[qid]=true;return n;});
+        setNamePool(function(pp){return pp.filter(function(id){return id!==selId;});});
+        setFb(function(f){var n={};for(var k in f)n[k]=f[k];n[qid]="correct";return n;});
+        setSelId(null);
+      } else {
+        setFb(function(f){var n={};for(var k in f)n[k]=f[k];n[qid]="wrong";return n;});
+        setTimeout(function(){setFb(function(f){var n={};for(var k in f)n[k]=f[k];delete n[qid];return n;});},400);
+      }
+    }
+
+    var matchCount=Object.keys(matched).length;
+    var allDone=matchCount>=TOTAL;
+
+    // Quiz is always active — no start screen
+
+    // Active quiz
+    return h('div',{style:{marginTop:28}},
+      h('div',{style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
+        h('div',{style:{width:8,height:8,borderRadius:2,background:C.accent}}),
+        h('span',{style:{fontFamily:mono,fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}},"DEFINITIONS QUIZ")),
+
+      // Score
+      h('div',{style:{fontFamily:mono,fontSize:11,color:C.textMuted,marginBottom:6,textAlign:"center"}},
+        "Matched: ",h('span',{style:{color:C.success,fontWeight:700}},matchCount),"/",TOTAL,
+        tries>0?(" \xB7 "+Math.round(correct/tries*100)+"% accuracy"):""),
+
+      // Category legend
+      h('div',{style:{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap",marginBottom:10}},
+        [["component","Components"],["form_of_loss","Forms of Loss"],["poa_sub","PoA Sub-factors"]].map(function(pair){
+          return h('div',{key:pair[0],style:{display:"flex",alignItems:"center",gap:4}},
+            h('div',{style:{width:8,height:8,borderRadius:2,background:CAT_COLORS[pair[0]]}}),
+            h('span',{style:{fontFamily:mono,fontSize:8,color:C.textDim}},pair[1]));
+        })),
+
+      // Instruction
+      h('div',{style:{fontFamily:mono,fontSize:mb?10:12,color:selId?C.text:C.textMuted,textAlign:"center",marginBottom:12,fontWeight:selId?600:400,minHeight:18}},
+        selId
+          ? "Tap the definition for: "+QMAP[selId].name
+          : "Select a name below, then tap its matching definition"),
+
+      // Definition cards
+      h('div',{style:{display:"grid",gridTemplateColumns:mb?"1fr":"1fr 1fr",gap:8}},
+        defCards.map(function(qid){
+          var item=QMAP[qid];
+          var isMatched=matched[qid];
+          var fbState=fb[qid];
+          var catColor=CAT_COLORS[item.cat];
+          var bColor=fbState==="correct"?C.success:fbState==="wrong"?C.danger:isMatched?catColor+"88":C.borderLight;
+          var cls=fbState==="correct"?"pop-correct":fbState==="wrong"?"shake-wrong":"";
+          return h('div',{
+            key:qid,
+            className:cls,
+            onClick:function(){tapCard(qid);},
+            style:{
+              background:isMatched?C.bgCard:C.bg,
+              border:"2px "+(isMatched?"solid":"dashed")+" "+bColor,
+              borderLeft:isMatched?("4px solid "+catColor):undefined,
+              borderRadius:8,padding:"8px 12px",
+              cursor:isMatched?"default":"pointer",
+              transition:"border-color 0.2s"
+            }
+          },
+            isMatched&&h('div',{style:{display:"flex",alignItems:"center",gap:5,marginBottom:3,flexWrap:"wrap"}},
+              h('span',{style:{fontFamily:mono,fontSize:12,fontWeight:700,color:catColor}},item.name),
+              item.unit&&h(UnitBadge,{unit:item.unit,size:18,fs:9})),
+            h('div',{style:{fontFamily:serif,fontSize:mb?11:13,color:C.textMuted,lineHeight:1.5,fontStyle:"italic"}},'"'+item.def+'"'));
+        })),
+
+      // Name pool
+      namePool.length>0&&h('div',{style:{marginTop:12,padding:mb?"10px":"12px 16px",background:C.bgCard,borderRadius:10,border:"1px solid "+C.border}},
+        h('div',{style:{fontFamily:mono,fontSize:9,color:C.textDim,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}},"TAP A NAME TO SELECT IT"),
+        h('div',{style:{display:"flex",flexWrap:"wrap",gap:6,justifyContent:"center"}},
+          namePool.map(function(qid){
+            var item=QMAP[qid];
+            var isSel=selId===qid;
+            var catColor=CAT_COLORS[item.cat];
+            return h('button',{
+              key:qid,
+              onClick:function(){setSelId(function(prev){return prev===qid?null:qid;});},
+              style:{
+                background:isSel?catColor+"22":C.bg,
+                border:"1px solid "+(isSel?catColor:C.borderLight),
+                borderRadius:6,padding:"5px 10px",cursor:"pointer",
+                fontFamily:mono,fontSize:mb?9:10,fontWeight:isSel?700:500,
+                color:isSel?catColor:C.text,
+                boxShadow:isSel?"0 0 10px "+catColor+"33":"none"
+              }
+            },item.name);
+          }))),
+
+      // Done
+      allDone&&h('div',{style:{textAlign:"center",marginTop:14}},
+        h('div',{style:{fontSize:24,marginBottom:4}},"\uD83C\uDF89"),
+        h('div',{style:{fontFamily:mono,fontSize:13,color:C.success,marginBottom:8}},
+          "All 22 definitions matched! "+Math.round(correct/tries*100)+"% accuracy"),
+        h('button',{onClick:startQuiz,style:{background:"transparent",border:"1px solid "+C.accent,color:C.accent,borderRadius:6,padding:"6px 16px",fontFamily:mono,fontSize:11,fontWeight:600,cursor:"pointer"}},"Quiz Again")));
+  }
+
+  // ============================================================
+  // MAIN APP
+  // ============================================================
+  function App(){
+    var mb=useIsMobile();
+    var s1=useState("study"),mode=s1[0],setMode=s1[1];
+    var s2=useState(0),practiceKey=s2[0],setPracticeKey=s2[1];
+
+    function startPractice(){setMode("practice");setPracticeKey(function(k){return k+1;});}
+
+    return h('div',{style:{minHeight:"100vh",background:C.bg,color:C.text}},
+      h(Header,{mb:mb}),
+      h('div',{style:{maxWidth:1000,margin:"0 auto",padding:mb?"20px 10px":"32px 24px"}},
+
+        h('h1',{style:{fontFamily:serif,fontSize:mb?26:36,fontWeight:700,color:C.text,marginBottom:6,textAlign:"center"}},"FAIR Model Study Tool"),
+        h('p',{style:{fontFamily:serif,fontSize:mb?14:16,color:C.textMuted,textAlign:"center",maxWidth:620,margin:"0 auto 28px",lineHeight:1.6}},
+          "Master the FAIR decomposition tree for certification. Study the complete model, then build it from memory."),
+
+        // ACT 1
+        h(SectionLabel,{n:"1",label:"THE LESSON",color:C.danger}),
+        h('div',{style:{maxWidth:680,marginBottom:24}},
+          h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:12}},
+            "The FAIR model decomposes risk into its fundamental components. For certification, you need this taxonomy cold: every factor, where it sits in the tree, what unit it uses. Dollars ($) for financial amounts, percent (%) for probabilities, and count (#) for frequencies."),
+          h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75}},
+            "Study the tree below, then switch to practice mode. You'll place each component in the right spot, then assign its unit. The definitions quiz covers all 22 testable items: 13 model components, 6 forms of loss, and 3 Probability of Action sub-factors.")),
+
+        // ACT 2
+        h(SectionLabel,{n:"2",label:"THE TOOL",color:C.accent}),
+
+        // Mode toggle
+        h('div',{style:{display:"flex",gap:8,marginBottom:14,justifyContent:"center"}},
+          h('button',{onClick:function(){setMode("study");},style:{
+            background:mode==="study"?C.accent:"transparent",color:mode==="study"?"#000":C.accent,
+            border:"1px solid "+C.accent,borderRadius:6,padding:"8px 18px",fontSize:12,fontWeight:600,cursor:"pointer"
+          }},"\uD83D\uDCD6 Study"),
+          h('button',{onClick:startPractice,style:{
+            background:mode==="practice"?C.accent:"transparent",color:mode==="practice"?"#000":C.accent,
+            border:"1px solid "+C.accent,borderRadius:6,padding:"8px 18px",fontSize:12,fontWeight:600,cursor:"pointer"
+          }},"\uD83C\uDFAF Practice")),
+
+        // Unit legend
+        h('div',{style:{display:"flex",gap:14,justifyContent:"center",marginBottom:16,flexWrap:"wrap"}},
+          [["$","Dollars"],["%","Probability / Percentile"],["#","Frequency (count)"]].map(function(pair){
+            return h('div',{key:pair[0],style:{display:"flex",alignItems:"center",gap:5}},
+              h(UnitBadge,{unit:pair[0],size:20,fs:10}),
+              h('span',{style:{fontFamily:mono,fontSize:9,color:C.textDim}},pair[1]));
+          })),
+
+        // CONTENT
+        mode==="study"
+          ? h(StudyTree,{mb:mb})
+          : h(PracticeMode,{key:practiceKey,mb:mb,onReset:startPractice}),
+
+        // DEFINITIONS QUIZ — always visible
+        h(DefinitionsQuiz,{mb:mb}),
+
+        // ACT 3
+        h('div',{style:{marginTop:32}},
+          h(SectionLabel,{n:"3",label:"THE TAKEAWAY",color:C.success}),
+          h('div',{style:{maxWidth:680}},
+            h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:12}},
+              "Each factor in the FAIR tree is a lever you can measure, estimate, and act on. Knowing where each component sits, what it measures, and how it connects to its neighbors is foundational to applying FAIR in practice."),
+            h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:16}},
+              "Practice until you can build the full tree from memory without mistakes. That's when you're ready.")),
+          h('div',{style:{display:"flex",gap:10,flexWrap:"wrap"}},
+            h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:{textDecoration:"none"}},
+              h('button',{style:{background:C.accent,color:"#000",border:"none",borderRadius:6,padding:"10px 20px",fontFamily:mono,fontSize:12,fontWeight:600,cursor:"pointer"}},"Order the Book")),
+            h('a',{href:"https://www.heatmapstohistograms.com/",style:{textDecoration:"none"}},
+              h('button',{style:{background:"transparent",color:C.accent,border:"1px solid "+C.accent,borderRadius:6,padding:"10px 20px",fontFamily:mono,fontSize:12,fontWeight:600,cursor:"pointer"}},"Book Site")),
+            h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:{textDecoration:"none"}},
+              h('button',{style:{background:"transparent",color:C.accent,border:"1px solid "+C.accent,borderRadius:6,padding:"10px 20px",fontFamily:mono,fontSize:12,fontWeight:600,cursor:"pointer"}},"Newsletter")))),
+
+        // Disclaimer
+        h('div',{style:{marginTop:28,padding:"10px 14px",background:C.bgCard,borderRadius:8,border:"1px solid "+C.border}},
+          h('div',{style:{fontFamily:mono,fontSize:9,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:3}},"DISCLAIMER"),
+          h('p',{style:{fontFamily:mono,fontSize:11,color:C.textDim,lineHeight:1.6}},
+            "Based on the FAIR Model Standard Artifact Version 3.0 (January 2025) published by the FAIR Institute. This is a study aid and does not replace official FAIR training materials. The FAIR Model\u2122 is a trademark of the FAIR Institute."))),
+
+      h(Footer,{mb:mb}));
+  }
+
+  ReactDOM.render(h(App),document.getElementById("root"));
+  </script>
+</body>
+</html>

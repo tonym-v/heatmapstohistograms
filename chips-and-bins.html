@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chips and Bins: Interactive Expert Elicitation Tool</title>
+  <meta name="description" content="Place 20 chips into bins to express your uncertainty about a risk parameter. Watch a probability distribution emerge from your beliefs. A companion tool for From Heatmaps to Histograms by Tony Martin-Vegue." />
+  <meta name="author" content="Tony Martin-Vegue" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://www.heatmapstohistograms.com/tools/chips-and-bins" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Chips and Bins: Turn Expert Beliefs Into Probability Distributions" />
+  <meta property="og:description" content="The most intuitive way to capture what an expert actually believes, including their uncertainty. Interactive companion tool for From Heatmaps to Histograms." />
+  <meta property="og:url" content="https://www.heatmapstohistograms.com/tools/chips-and-bins" />
+  <meta property="og:image" content="https://www.heatmapstohistograms.com/tools/og-chips-and-bins.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:site_name" content="From Heatmaps to Histograms" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Chips and Bins: Turn Expert Beliefs Into Distributions" />
+  <meta name="twitter:description" content="Place chips to express your uncertainty. Watch a distribution form. Interactive CRQ tool by Tony Martin-Vegue." />
+  <meta name="twitter:image" content="https://www.heatmapstohistograms.com/tools/og-chips-and-bins.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0B1120;font-family:'Source Serif 4',Georgia,serif}
+    ::selection{background:#F59E0B;color:#000}
+    a:hover{opacity:0.85}
+    button{font-family:'IBM Plex Mono',monospace;cursor:pointer}
+    input[type=number],input[type=text],select{font-family:'IBM Plex Mono',monospace;background:#0B1120;color:#E2E8F0;border:1px solid #334155;border-radius:4px;padding:6px 8px;font-size:13px;width:100%;outline:none}
+    input[type=number]:focus,input[type=text]:focus,select:focus{border-color:#F59E0B}
+    input[type=number]::-webkit-inner-spin-button{opacity:1}
+    select{cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%2394A3B8' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:28px}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes chipDrop{from{opacity:0;transform:translateY(-16px) scale(0.8)}to{opacity:1;transform:translateY(0) scale(1)}}
+    .fade-in{animation:fadeIn 0.4s ease-out forwards}
+    .chip-drop{animation:chipDrop 0.25s cubic-bezier(0.34,1.56,0.64,1) forwards}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script>
+  'use strict';
+  const {useState,useEffect,useRef,useMemo,createElement:h}=React;
+
+  const C={bg:"#0B1120",bgCard:"#111827",border:"#1E293B",borderLight:"#334155",text:"#E2E8F0",textMuted:"#94A3B8",textDim:"#64748B",accent:"#F59E0B",accentGlow:"rgba(245,158,11,0.15)",danger:"#EF4444",dangerMuted:"rgba(239,68,68,0.2)",success:"#10B981"};
+  const mono="'IBM Plex Mono',monospace";
+  const serif="'Source Serif 4',Georgia,serif";
+  const TOTAL_CHIPS=20;
+
+  function useIsMobile(bp){const[m,setM]=useState(false);useEffect(()=>{const c=()=>setM(window.innerWidth<(bp||768));c();window.addEventListener("resize",c);return()=>window.removeEventListener("resize",c);},[bp]);return m;}
+
+  // ── Preset questions ──
+  const PRESETS=[
+    {label:"Probability of a material data breach this year",low:0,high:100,unit:"%",step:5,defaultBins:10},
+    {label:"Expected annual loss from ransomware ($K)",low:0,high:5000,unit:"$K",step:250,defaultBins:10},
+    {label:"Phishing click rate among employees (%)",low:0,high:50,unit:"%",step:5,defaultBins:10},
+    {label:"Days to detect a breach",low:0,high:365,unit:"days",step:30,defaultBins:12},
+    {label:"Percentage of third parties with weak controls",low:0,high:100,unit:"%",step:10,defaultBins:10},
+    {label:"Custom question",low:0,high:100,unit:"",step:10,defaultBins:10}
+  ];
+
+  // ── Beta distribution fitting via method of moments ──
+  function fitBeta(bins,low,high){
+    const total=bins.reduce((s,v)=>s+v,0);
+    if(total===0)return null;
+    const n=bins.length;
+    const binW=(high-low)/n;
+    // Weighted mean and variance
+    let mu=0,m2=0;
+    for(let i=0;i<n;i++){
+      const center=low+(i+0.5)*binW;
+      const w=bins[i]/total;
+      mu+=center*w;
+    }
+    for(let i=0;i<n;i++){
+      const center=low+(i+0.5)*binW;
+      const w=bins[i]/total;
+      m2+=(center-mu)*(center-mu)*w;
+    }
+    // Scale to [0,1]
+    const range=high-low;
+    if(range<=0)return null;
+    const muN=(mu-low)/range;
+    const varN=m2/(range*range);
+    if(varN<=0||varN>=muN*(1-muN))return{alpha:2,beta:2,mean:mu,median:mu,p5:low+0.05*range,p95:low+0.95*range,fallback:true};
+    const alpha=muN*(muN*(1-muN)/varN-1);
+    const beta=(1-muN)*(muN*(1-muN)/varN-1);
+    if(alpha<=0||beta<=0)return{alpha:2,beta:2,mean:mu,median:mu,p5:low+0.05*range,p95:low+0.95*range,fallback:true};
+    // Compute stats
+    const mean=low+alpha/(alpha+beta)*range;
+    const median=low+betaQuantile(0.5,alpha,beta)*range;
+    const p5=low+betaQuantile(0.05,alpha,beta)*range;
+    const p95=low+betaQuantile(0.95,alpha,beta)*range;
+    return{alpha,beta:beta,mean,median,p5,p95};
+  }
+
+  // Compute stats from raw alpha/beta params
+  function betaStats(a,b,low,high){
+    const range=high-low;
+    if(a<=0||b<=0)return null;
+    return{
+      alpha:a,beta:b,
+      mean:low+a/(a+b)*range,
+      median:low+betaQuantile(0.5,a,b)*range,
+      p5:low+betaQuantile(0.05,a,b)*range,
+      p95:low+betaQuantile(0.95,a,b)*range,
+      p10:low+betaQuantile(0.10,a,b)*range,
+      p25:low+betaQuantile(0.25,a,b)*range,
+      p75:low+betaQuantile(0.75,a,b)*range,
+      p90:low+betaQuantile(0.90,a,b)*range
+    };
+  }
+
+  // Beta PDF
+  function betaPDF(x,a,b){
+    if(x<=0||x>=1)return 0;
+    const lnB=lnGamma(a)+lnGamma(b)-lnGamma(a+b);
+    return Math.exp((a-1)*Math.log(x)+(b-1)*Math.log(1-x)-lnB);
+  }
+  // Log gamma (Stirling approx + Lanczos)
+  function lnGamma(z){
+    if(z<0.5)return Math.log(Math.PI/Math.sin(Math.PI*z))-lnGamma(1-z);
+    z-=1;
+    const g=7,cs=[0.99999999999980993,676.5203681218851,-1259.1392167224028,771.32342877765313,-176.61502916214059,12.507343278686905,-0.13857109526572012,9.9843695780195716e-6,1.5056327351493116e-7];
+    let x=cs[0];
+    for(let i=1;i<g+2;i++)x+=cs[i]/(z+i);
+    const t=z+g+0.5;
+    return 0.5*Math.log(2*Math.PI)+(z+0.5)*Math.log(t)-t+Math.log(x);
+  }
+  // Beta CDF via regularized incomplete beta (simple numerical)
+  function betaCDF(x,a,b){
+    if(x<=0)return 0;if(x>=1)return 1;
+    // Use continued fraction approximation
+    const bt=Math.exp(lnGamma(a+b)-lnGamma(a)-lnGamma(b)+a*Math.log(x)+b*Math.log(1-x));
+    if(x<(a+1)/(a+b+2))return bt*betaCF(x,a,b)/a;
+    return 1-bt*betaCF(1-x,b,a)/b;
+  }
+  function betaCF(x,a,b){
+    const maxIter=200,eps=3e-7;
+    let qab=a+b,qap=a+1,qam=a-1;
+    let c=1,d=1-qab*x/qap;
+    if(Math.abs(d)<1e-30)d=1e-30;d=1/d;let h=d;
+    for(let m=1;m<=maxIter;m++){
+      let m2=2*m;
+      let aa=m*(b-m)*x/((qam+m2)*(a+m2));
+      d=1+aa*d;if(Math.abs(d)<1e-30)d=1e-30;
+      c=1+aa/c;if(Math.abs(c)<1e-30)c=1e-30;
+      d=1/d;h*=d*c;
+      aa=-(a+m)*(qab+m)*x/((a+m2)*(qap+m2));
+      d=1+aa*d;if(Math.abs(d)<1e-30)d=1e-30;
+      c=1+aa/c;if(Math.abs(c)<1e-30)c=1e-30;
+      d=1/d;let del=d*c;h*=del;
+      if(Math.abs(del-1)<eps)break;
+    }
+    return h;
+  }
+  // Beta quantile via bisection
+  function betaQuantile(p,a,b){
+    let lo=0,hi=1;
+    for(let i=0;i<60;i++){
+      const mid=(lo+hi)/2;
+      if(betaCDF(mid,a,b)<p)lo=mid;else hi=mid;
+    }
+    return(lo+hi)/2;
+  }
+
+  // ── Shared Components ──
+  function Header({isMobile:mb}){
+    return h('div',{style:{borderBottom:"1px solid "+C.border,padding:mb?"12px 0":"16px 0"}},
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"0 16px":"0 24px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}},
+        h('div',null,
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{textDecoration:"none"}},
+            h('div',{style:{fontFamily:mono,fontSize:mb?10:11,letterSpacing:"0.15em",color:C.accent,textTransform:"uppercase",marginBottom:2}},"From Heatmaps to Histograms")),
+          h('div',{style:{fontFamily:mono,fontSize:mb?10:11,color:C.textDim}},"\u00B7 Interactive Tools \u00B7 Tony Martin-Vegue")),
+        !mb&&h('div',{style:{display:"flex",gap:20,fontFamily:mono,fontSize:11,color:C.textDim}},
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Book"),
+          h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Newsletter"),
+          h('a',{href:"https://www.95risk.com",style:{color:C.textDim,textDecoration:"none"}},"95 Risk Advisory"))));
+  }
+
+  function Footer({isMobile:mb}){
+    const ls={color:C.textMuted,textDecoration:"none"};
+    return h('div',{style:{borderTop:"1px solid "+C.border,padding:"28px 0",marginTop:64}},
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"0 16px":"0 24px",display:"flex",flexDirection:mb?"column":"row",justifyContent:"space-between",alignItems:mb?"center":"flex-start",gap:mb?16:0}},
+        h('div',{style:{textAlign:mb?"center":"left"}},
+          h('div',{style:{fontFamily:mono,fontSize:11,color:C.accent,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}},"From Heatmaps to Histograms"),
+          h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim}},"Tony Martin-Vegue \u00B7 Apress")),
+        h('div',{style:{display:"flex",gap:mb?20:24,fontFamily:mono,fontSize:11}},
+          h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:ls},"Order"),
+          h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:ls},"Newsletter"),
+          h('a',{href:"https://www.heatmapstohistograms.com/",style:ls},"Book Site"),
+          h('a',{href:"https://www.95risk.com",style:ls},"Consulting"))));
+  }
+
+  function SLabel({n,label,color}){
+    return h('div',{style:{display:"flex",alignItems:"center",gap:12,marginBottom:20}},
+      h('div',{style:{width:32,height:32,borderRadius:"50%",background:color||C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:mono,fontSize:14,fontWeight:700,color:"#000",flexShrink:0}},n),
+      h('div',{style:{fontFamily:mono,fontSize:12,letterSpacing:"0.1em",textTransform:"uppercase",color:C.textMuted}},label));
+  }
+
+  function StepHeader({label,color}){
+    return h('div',{style:{display:"flex",alignItems:"center",gap:8,marginBottom:12,marginTop:24}},
+      h('div',{style:{width:10,height:10,borderRadius:2,background:color||C.accent,flexShrink:0}}),
+      h('div',{style:{fontFamily:mono,fontSize:13,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em",color:color||C.accent}},label));
+  }
+
+  function Disclaimer(){
+    return h('div',{style:{maxWidth:1100,margin:"0 auto",padding:"32px 24px 0"}},
+      h('div',{style:{background:C.accent+"08",border:"1px solid "+C.accent+"22",borderRadius:8,padding:"14px 18px",fontFamily:mono,fontSize:11,color:C.textDim,lineHeight:1.6}},
+        h('span',{style:{color:C.accent,fontWeight:600}},"A NOTE ON THIS TOOL. "),
+        "This is a learning demo designed to illustrate structured expert elicitation, not a production-grade tool. The beta distribution fitted here uses method-of-moments estimation from your chip placement, which works well for unimodal beliefs but may not capture all shapes. In practice, you would use a facilitated session with a trained analyst, try multiple distribution families, and have the expert confirm the fitted result matches their beliefs. For real-world elicitation, see the SHELF framework or the references at the bottom of this page. That said, if placing chips made you think harder about your uncertainty, we will call that a win."));
+  }
+
+  // ── Chip Counter ──
+  function ChipCounter({placed,total,isMobile:mb}){
+    const remaining=total-placed;
+    const pct=Math.round(placed/total*100);
+    return h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"12px 14px":"14px 18px",display:"flex",alignItems:"center",gap:16,marginBottom:16}},
+      // Mini chip stack visual
+      h('div',{style:{display:"flex",gap:3,alignItems:"flex-end",flexShrink:0}},
+        ...Array.from({length:Math.min(total,20)},(_,i)=>
+          h('div',{key:i,style:{width:mb?6:8,height:mb?6:8,borderRadius:"50%",background:i<placed?C.accent:C.border,transition:"background 0.2s, transform 0.2s",transform:i<placed?"scale(1)":"scale(0.7)"}}))),
+      h('div',{style:{flex:1}},
+        h('div',{style:{fontFamily:mono,fontSize:13,fontWeight:600,color:remaining>0?C.accent:C.success}},
+          remaining>0?remaining+" chip"+(remaining!==1?"s":"")+" remaining":"All chips placed!"),
+        h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,marginTop:2}},
+          placed+" of "+total+" placed ("+pct+"% allocated)")));
+  }
+
+  // ── The Bins Grid ──
+  function BinsGrid({bins,setBins,numBins,low,high,unit,isMobile:mb}){
+    const placed=bins.reduce((s,v)=>s+v,0);
+    const remaining=TOTAL_CHIPS-placed;
+    const maxStack=Math.max(...bins,4);
+    const binW=(high-low)/numBins;
+
+    function handleClick(idx){
+      if(remaining<=0)return;
+      const nb=[...bins];
+      nb[idx]++;
+      setBins(nb);
+    }
+    function handleRightClick(e,idx){
+      e.preventDefault();
+      if(bins[idx]<=0)return;
+      const nb=[...bins];
+      nb[idx]--;
+      setBins(nb);
+    }
+
+    const chipSize=mb?20:24;
+    const binGap=mb?2:3;
+    const gridRows=Math.max(maxStack+1,5);
+
+    return h('div',{style:{marginTop:8}},
+      // Instructions
+      h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,marginBottom:10,lineHeight:1.5}},
+        "Click a bin to add a chip. Click a chip to remove it. Each chip = "+Math.round(100/TOTAL_CHIPS)+"% probability."),
+      // Grid
+      h('div',{style:{display:"flex",gap:binGap,alignItems:"flex-end",padding:"0 4px"}},
+        ...bins.map((count,idx)=>{
+          const isHoverable=remaining>0;
+          return h('div',{key:idx,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",cursor:isHoverable?"pointer":"default",minWidth:0},
+            onClick:()=>handleClick(idx),
+            onContextMenu:e=>handleRightClick(e,idx)},
+            // Chips stacked
+            h('div',{style:{display:"flex",flexDirection:"column-reverse",alignItems:"center",gap:2,minHeight:gridRows*(chipSize+2),justifyContent:"flex-start",padding:"4px 0"}},
+              ...Array.from({length:count},(_,ci)=>
+                h('div',{key:ci,className:"chip-drop",onClick:e=>{e.stopPropagation();handleRightClick(e,idx);},style:{
+                  width:chipSize,height:chipSize,borderRadius:"50%",
+                  background:"radial-gradient(circle at 35% 35%, #FBBF24, "+C.accent+" 60%, #D97706)",
+                  boxShadow:"0 2px 4px rgba(0,0,0,0.3), inset 0 1px 2px rgba(255,255,255,0.3)",
+                  border:"1px solid #D97706",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontFamily:mono,fontSize:mb?6:7,fontWeight:700,color:"rgba(0,0,0,0.5)",
+                  cursor:"pointer",
+                  flexShrink:0
+                }},"5%"))),
+            // Bin background
+            h('div',{style:{
+              width:"100%",height:mb?32:36,
+              background:count>0?C.accent+"15":C.bgCard,
+              border:"1px solid "+(count>0?C.accent+"40":C.border),
+              borderRadius:"0 0 4px 4px",borderTop:"2px solid "+(count>0?C.accent:C.borderLight),
+              display:"flex",alignItems:"center",justifyContent:"center",
+              transition:"all 0.15s",
+              fontFamily:mono,fontSize:mb?8:9,color:count>0?C.accent:C.textDim,fontWeight:count>0?600:400
+            }},count>0?count+"":""),
+            // Label — show midpoint only, skip some labels if crowded
+            (()=>{
+              const showEvery=numBins<=10?1:numBins<=15?2:3;
+              const lh=mb?16:18;
+              if(idx%showEvery!==0&&idx!==numBins-1)return h('div',{style:{height:lh}});
+              const mid=low+(idx+0.5)*binW;
+              return h('div',{style:{fontFamily:mono,fontSize:mb?7:8,color:C.textDim,height:lh,display:"flex",alignItems:"center",justifyContent:"center",textAlign:"center",lineHeight:1.2}},
+                formatVal(mid,unit));
+            })());
+        })),
+      // Probability axis label
+      h('div',{style:{textAlign:"center",fontFamily:mono,fontSize:10,color:C.textDim,marginTop:8}},
+        "Value Range"+(unit?" ("+unit+")":"")));
+  }
+
+  function formatVal(v,unit){
+    // Round intelligently: integers if >=10, one decimal if <10, two if <1
+    function smart(n){
+      const a=Math.abs(n);
+      if(a>=100)return Math.round(n).toString();
+      if(a>=10)return Math.round(n).toString();
+      if(a>=1)return(Math.round(n*10)/10).toString();
+      if(a>=0.1)return(Math.round(n*100)/100).toString();
+      return n.toFixed(2);
+    }
+    if(unit==="$K"){
+      if(v>=1000)return"$"+smart(v/1000)+"M";
+      return"$"+smart(v)+"K";
+    }
+    if(unit==="%")return smart(v)+"%";
+    if(unit==="days")return smart(v)+"d";
+    return smart(v);
+  }
+
+  // ── Fitted Distribution Chart ──
+  function FittedChart({fit,bins,numBins,low,high,unit,isMobile:mb}){
+    const ref=useRef(null);
+    const[w,setW]=useState(500);
+    useEffect(()=>{if(!ref.current)return;const o=new ResizeObserver(e=>{for(const x of e)setW(x.contentRect.width);});o.observe(ref.current);return()=>o.disconnect();},[]);
+
+    const ht=mb?200:260;
+    const mg={top:24,right:20,bottom:36,left:20};
+    const pw=w-mg.left-mg.right;
+    const ph=ht-mg.top-mg.bottom;
+    const range=high-low;
+    const binW=range/numBins;
+    const total=bins.reduce((s,v)=>s+v,0);
+
+    // Draw histogram bars (normalized)
+    const maxChips=Math.max(...bins,1);
+    const barElements=bins.map((count,i)=>{
+      const bh=total>0?(count/maxChips)*ph*0.85:0;
+      const bx=mg.left+(i/numBins)*pw;
+      const bw=pw/numBins-1;
+      return h('rect',{key:"bar"+i,x:bx,y:mg.top+ph-bh,width:Math.max(bw,2),height:bh,fill:C.accent,opacity:0.3,rx:1});
+    });
+
+    // Draw fitted curve
+    let curvePath="";
+    if(fit){
+      const pts=100;
+      const maxPdf=Array.from({length:pts+1},(_,i)=>{
+        const xn=i/pts;
+        return betaPDF(xn,fit.alpha,fit.beta);
+      });
+      const maxP=Math.max(...maxPdf,0.01);
+      curvePath=Array.from({length:pts+1},(_,i)=>{
+        const xn=i/pts;
+        const y=betaPDF(xn,fit.alpha,fit.beta);
+        const sx=mg.left+xn*pw;
+        const sy=mg.top+ph-(y/maxP)*ph*0.92;
+        return(i===0?"M":"L")+sx+","+sy;
+      }).join(" ");
+    }
+
+    // Percentile markers — with collision avoidance
+    const markers=fit?[
+      {label:"P5",val:fit.p5,color:C.textDim},
+      {label:"Median",val:fit.median,color:C.text},
+      {label:"Mean",val:fit.mean,color:C.accent},
+      {label:"P95",val:fit.p95,color:C.textDim}
+    ]:[];
+    // If mean and median are very close, only show one
+    const minSep=pw*0.06;
+    const filteredMarkers=markers.filter((m,i)=>{
+      if(m.label==="Mean"&&fit){
+        const medianX=mg.left+((fit.median-low)/range)*pw;
+        const meanX=mg.left+((fit.mean-low)/range)*pw;
+        if(Math.abs(medianX-meanX)<minSep)return false;
+      }
+      return true;
+    });
+
+    return h('div',{ref,style:{width:"100%"}},
+      h('svg',{width:w,height:ht,style:{display:"block"}},
+        // Background grid
+        ...Array.from({length:5},(_,i)=>{
+          const y=mg.top+i*(ph/4);
+          return h('line',{key:"grid"+i,x1:mg.left,y1:y,x2:w-mg.right,y2:y,stroke:C.border,strokeWidth:0.5,strokeDasharray:"2,4"});
+        }),
+        // Bars
+        ...barElements,
+        // Curve
+        fit&&h('path',{d:curvePath,fill:"none",stroke:C.accent,strokeWidth:2.5,opacity:0.9}),
+        // Percentile markers
+        ...filteredMarkers.map((m,i)=>{
+          const sx=mg.left+((m.val-low)/range)*pw;
+          if(sx<mg.left||sx>w-mg.right)return null;
+          return h('g',{key:"m"+i},
+            h('line',{x1:sx,y1:mg.top+ph,x2:sx,y2:mg.top+ph+8,stroke:m.color,strokeWidth:1.5}),
+            h('text',{x:sx,y:mg.top+ph+20,fill:m.color,fontSize:mb?7:8,fontFamily:mono,textAnchor:"middle",fontWeight:600},m.label),
+            h('text',{x:sx,y:mg.top+ph+30,fill:m.color,fontSize:mb?7:8,fontFamily:mono,textAnchor:"middle"},formatVal(m.val,unit)));
+        }),
+        // Axis
+        h('line',{x1:mg.left,y1:mg.top+ph,x2:w-mg.right,y2:mg.top+ph,stroke:C.borderLight,strokeWidth:1}),
+        h('text',{x:mg.left,y:ht-4,fill:C.textDim,fontSize:mb?8:9,fontFamily:mono},formatVal(low,unit)),
+        h('text',{x:w-mg.right,y:ht-4,fill:C.textDim,fontSize:mb?8:9,fontFamily:mono,textAnchor:"end"},formatVal(high,unit)),
+        // Title
+        !fit&&total===0&&h('text',{x:w/2,y:ht/2,fill:C.textDim,fontSize:12,fontFamily:mono,textAnchor:"middle"},"Place chips above to see the fitted distribution")));
+  }
+
+  // ── Stats Panel ──
+  function StatsPanel({fit,unit,isMobile:mb}){
+    if(!fit)return null;
+    const stats=[
+      {label:"5th Percentile",val:formatVal(fit.p5,unit),sub:"Lower bound",color:C.textMuted},
+      {label:"Median",val:formatVal(fit.median,unit),sub:"50th percentile",color:C.text},
+      {label:"Mean",val:formatVal(fit.mean,unit),sub:"Expected value",color:C.accent},
+      {label:"95th Percentile",val:formatVal(fit.p95,unit),sub:"Upper bound",color:C.textMuted}
+    ];
+    return h('div',{className:"fade-in",style:{display:"grid",gridTemplateColumns:mb?"1fr 1fr":"1fr 1fr 1fr 1fr",gap:8,marginTop:16}},
+      ...stats.map((s,i)=>
+        h('div',{key:i,style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:6,padding:mb?"10px":"12px 14px",textAlign:"center"}},
+          h('div',{style:{fontFamily:mono,fontSize:mb?8:9,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}},s.label),
+          h('div',{style:{fontFamily:mono,fontSize:mb?16:20,fontWeight:700,color:s.color}},s.val),
+          h('div',{style:{fontFamily:mono,fontSize:8,color:C.textDim,marginTop:2}},s.sub))));
+  }
+
+  // ── Distribution shape description ──
+  function shapeDesc(fit){
+    if(!fit)return"";
+    const {alpha,beta}=fit;
+    if(Math.abs(alpha-beta)<0.5)return"Your belief is roughly symmetric: you think the true value is equally likely to be above or below the center.";
+    if(alpha<beta)return"Your belief is right-skewed: you think lower values are more likely, with a tail of possibility toward higher values.";
+    return"Your belief is left-skewed: you think higher values are more likely, with a longer tail toward lower values.";
+  }
+  function confidenceDesc(fit,low,high){
+    if(!fit)return"";
+    const range=high-low;
+    const width=fit.p95-fit.p5;
+    const pct=Math.round(width/range*100);
+    if(pct<25)return"You are fairly confident. Your 90% credible interval covers only "+pct+"% of the range.";
+    if(pct<50)return"You have moderate uncertainty. Your 90% credible interval spans "+pct+"% of the range.";
+    return"You are quite uncertain. Your 90% credible interval covers "+pct+"% of the range, which is itself useful information for the analysis.";
+  }
+
+  // ── Compute adjusted alpha/beta from base fit + slider adjustments ──
+  function adjAlphaBeta(baseFit,adj){
+    const baseMean=baseFit.alpha/(baseFit.alpha+baseFit.beta);
+    const baseConc=baseFit.alpha+baseFit.beta;
+    const newMean=Math.max(0.02,Math.min(0.98,baseMean+adj.peak));
+    const newConc=Math.max(2,baseConc*adj.certainty);
+    const skewedMean=newMean+(0.5-newMean)*adj.skew*-0.5;
+    const finalMean=Math.max(0.02,Math.min(0.98,skewedMean));
+    return{a:finalMean*newConc,b:(1-finalMean)*newConc};
+  }
+
+  // ── Step 3: Curve Refiner ──
+  function CurveRefiner({baseFit,adj,setAdj,low,high,unit,isMobile:mb}){
+    if(!baseFit)return null;
+    const{a,b}=adjAlphaBeta(baseFit,adj);
+
+    const adjFit=betaStats(a,b,low,high);
+
+    // Ref for chart width
+    const ref=useRef(null);
+    const[w,setW]=useState(500);
+    useEffect(()=>{if(!ref.current)return;const o=new ResizeObserver(e=>{for(const x of e)setW(x.contentRect.width);});o.observe(ref.current);return()=>o.disconnect();},[]);
+
+    const ht=mb?180:220;
+    const mg={top:20,right:20,bottom:32,left:20};
+    const pw=w-mg.left-mg.right;
+    const ph=ht-mg.top-mg.bottom;
+
+    // Original curve
+    function makePath(alpha,beta,color,opacity){
+      const pts=80;
+      const vals=Array.from({length:pts+1},(_,i)=>betaPDF(i/pts,alpha,beta));
+      const maxP=Math.max(...vals,0.01);
+      const d=vals.map((y,i)=>{
+        const sx=mg.left+(i/pts)*pw;
+        const sy=mg.top+ph-(y/maxP)*ph*0.9;
+        return(i===0?"M":"L")+sx+","+sy;
+      }).join(" ");
+      return h('path',{d,fill:"none",stroke:color,strokeWidth:2,opacity,strokeDasharray:color===C.textDim?"4,4":"none"});
+    }
+
+    const isChanged=Math.abs(adj.peak)>0.005||Math.abs(adj.certainty-1)>0.02||Math.abs(adj.skew)>0.02;
+
+    const sliderStyle={width:"100%",accentColor:C.accent,cursor:"pointer"};
+    const labelStyle={fontFamily:mono,fontSize:mb?9:10,color:C.textDim,marginBottom:2};
+    const valStyle={fontFamily:mono,fontSize:mb?9:10,color:C.accent,fontWeight:600,minWidth:40,textAlign:"right"};
+
+    return h('div',{style:{marginTop:24}},
+      // Chart
+      h('div',{ref,style:{width:"100%",marginBottom:16}},
+        h('svg',{width:w,height:ht,style:{display:"block"}},
+          // Grid
+          ...Array.from({length:4},(_,i)=>{
+            const y=mg.top+i*(ph/3);
+            return h('line',{key:"g"+i,x1:mg.left,y1:y,x2:w-mg.right,y2:y,stroke:C.border,strokeWidth:0.5,strokeDasharray:"2,4"});
+          }),
+          // Original curve (dashed)
+          makePath(baseFit.alpha,baseFit.beta,C.textDim,0.5),
+          // Adjusted curve (solid)
+          makePath(a,b,C.accent,1),
+          // Axis
+          h('line',{x1:mg.left,y1:mg.top+ph,x2:w-mg.right,y2:mg.top+ph,stroke:C.borderLight,strokeWidth:1}),
+          h('text',{x:mg.left,y:ht-4,fill:C.textDim,fontSize:mb?8:9,fontFamily:mono},formatVal(low,unit)),
+          h('text',{x:w-mg.right,y:ht-4,fill:C.textDim,fontSize:mb?8:9,fontFamily:mono,textAnchor:"end"},formatVal(high,unit)),
+          // Legend
+          h('line',{x1:mg.left+8,y1:12,x2:mg.left+28,y2:12,stroke:C.textDim,strokeWidth:1.5,strokeDasharray:"4,4"}),
+          h('text',{x:mg.left+32,y:15,fill:C.textDim,fontSize:8,fontFamily:mono},"From bins"),
+          isChanged&&h('line',{x1:mg.left+88,y1:12,x2:mg.left+108,y2:12,stroke:C.accent,strokeWidth:2}),
+          isChanged&&h('text',{x:mg.left+112,y:15,fill:C.accent,fontSize:8,fontFamily:mono},"Your refinement"))),
+
+      // Sliders
+      h('div',{style:{display:"grid",gridTemplateColumns:mb?"1fr":"1fr 1fr 1fr",gap:mb?12:20,marginBottom:16}},
+        // Peak
+        h('div',null,
+          h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline"}},
+            h('div',{style:labelStyle},"Shift the peak"),
+            h('div',{style:valStyle},adj.peak===0?"Centered":adj.peak<0?"\u2190 Lower":"\u2192 Higher")),
+          h('input',{type:"range",min:-0.3,max:0.3,step:0.01,value:adj.peak,
+            onChange:e=>setAdj({...adj,peak:parseFloat(e.target.value)}),style:sliderStyle})),
+        // Certainty
+        h('div',null,
+          h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline"}},
+            h('div',{style:labelStyle},"Widen / Narrow"),
+            h('div',{style:valStyle},adj.certainty<0.9?"Wider":adj.certainty>1.1?"Narrower":"As-is")),
+          h('input',{type:"range",min:0.3,max:3,step:0.05,value:adj.certainty,
+            onChange:e=>setAdj({...adj,certainty:parseFloat(e.target.value)}),style:sliderStyle})),
+        // Skew
+        h('div',null,
+          h('div',{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline"}},
+            h('div',{style:labelStyle},"Asymmetry"),
+            h('div',{style:valStyle},adj.skew<-0.1?"\u2190 Stretched left":adj.skew>0.1?"Stretched right \u2192":"Symmetric")),
+          h('input',{type:"range",min:-1,max:1,step:0.05,value:adj.skew,
+            onChange:e=>setAdj({...adj,skew:parseFloat(e.target.value)}),style:sliderStyle}))),
+
+      // Reset
+      isChanged&&h('div',{style:{display:"flex",gap:8,alignItems:"center"}},
+        h('button',{onClick:()=>setAdj({peak:0,certainty:1,skew:0}),style:{
+          fontFamily:mono,fontSize:11,padding:"6px 16px",background:"transparent",
+          color:C.textDim,border:"1px solid "+C.border,borderRadius:4
+        }},"Reset adjustments"),
+        adjFit&&h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim}},
+          "Implied median: "+formatVal(adjFit.median,unit))),
+
+      // Adjusted stats
+      adjFit&&h('div',{className:"fade-in",style:{marginTop:16,padding:mb?"12px":"14px 18px",background:C.bgCard,border:"1px solid "+C.border,borderRadius:8}},
+        h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}},
+          isChanged?"Adjusted Distribution":"Current Distribution"),
+        h('div',{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,fontFamily:mono,fontSize:mb?11:13}},
+          h('div',null,h('span',{style:{color:C.textDim,fontSize:9}},"P5 "),h('span',{style:{color:C.textMuted,fontWeight:600}},formatVal(adjFit.p5,unit))),
+          h('div',null,h('span',{style:{color:C.textDim,fontSize:9}},"Median "),h('span',{style:{color:C.text,fontWeight:600}},formatVal(adjFit.median,unit))),
+          h('div',null,h('span',{style:{color:C.textDim,fontSize:9}},"Mean "),h('span',{style:{color:C.accent,fontWeight:600}},formatVal(adjFit.mean,unit))),
+          h('div',null,h('span',{style:{color:C.textDim,fontSize:9}},"P95 "),h('span',{style:{color:C.textMuted,fontWeight:600}},formatVal(adjFit.p95,unit)))),
+        h('div',{style:{fontFamily:mono,fontSize:9,color:C.textDim,marginTop:8}},
+          "Beta(\u03B1="+a.toFixed(2)+", \u03B2="+b.toFixed(2)+") scaled to ["+formatVal(low,unit)+", "+formatVal(high,unit)+"]")));
+  }
+
+  // ── Step 4: Challenge Panel ──
+  function ChallengePanel({fit,adj,baseFit,low,high,unit,question,isMobile:mb}){
+    if(!baseFit)return null;
+    const{a,b}=adjAlphaBeta(baseFit,adj);
+    const f=betaStats(a,b,low,high);
+    if(!f)return null;
+
+    const[responses,setResponses]=useState({});
+
+    // Generate challenge questions at meaningful thresholds
+    const challenges=useMemo(()=>{
+      const qs=[];
+      const r=high-low;
+
+      // Pick a round-ish threshold above the median
+      const aboveThresh=low+Math.round(((f.median-low)/r+0.15)*20)/20*r;
+      const clampAbove=Math.min(aboveThresh,high-r*0.05);
+      const pAbove=Math.round((1-betaCDF((clampAbove-low)/r,a,b))*100);
+      qs.push({id:"exceed",text:"Your distribution says there is a "+pAbove+"% chance the value exceeds "+formatVal(clampAbove,unit)+". Does that feel right?"});
+
+      // Pick a threshold below the median
+      const belowThresh=low+Math.round(((f.median-low)/r-0.15)*20)/20*r;
+      const clampBelow=Math.max(belowThresh,low+r*0.05);
+      const pBelow=Math.round(betaCDF((clampBelow-low)/r,a,b)*100);
+      qs.push({id:"below",text:"There is a "+pBelow+"% chance the value stays below "+formatVal(clampBelow,unit)+". Is that consistent with your experience?"});
+
+      // The tail — how much probability above P90
+      const pAbove90=Math.round((1-betaCDF((f.p90-low)/r,a,b))*100);
+      qs.push({id:"tail",text:"Your shape puts only "+pAbove90+"% probability above "+formatVal(f.p90,unit)+". Could you be underestimating the tail?"});
+
+      // The spread
+      const ciWidth=Math.round((f.p95-f.p5)/r*100);
+      qs.push({id:"spread",text:"Your 90% credible interval spans "+ciWidth+"% of the range ("+formatVal(f.p5,unit)+" to "+formatVal(f.p95,unit)+"). Is that about right, too wide, or too narrow?"});
+
+      return qs;
+    },[a,b,low,high,unit,f]);
+
+    const allAnswered=challenges.every(c=>responses[c.id]!==undefined);
+    const disagreeCount=Object.values(responses).filter(v=>v===false).length;
+
+    return h('div',{style:{marginTop:24}},
+      h('p',{style:{fontFamily:serif,fontSize:mb?14:15,color:C.textMuted,lineHeight:1.6,marginBottom:16,maxWidth:680}},
+        "Your distribution implies specific probability statements. Read each one and decide if it matches your beliefs. If something feels wrong, go back to Step 3 and adjust."),
+
+      h('div',{style:{display:"flex",flexDirection:"column",gap:10}},
+        ...challenges.map(c=>
+          h('div',{key:c.id,style:{
+            background:C.bgCard,border:"1px solid "+(responses[c.id]===true?C.success+"60":responses[c.id]===false?C.danger+"60":C.border),
+            borderRadius:8,padding:mb?"12px 14px":"14px 18px",transition:"all 0.2s"
+          }},
+            h('div',{style:{fontFamily:serif,fontSize:mb?13:14,color:C.textMuted,lineHeight:1.5,marginBottom:10}},c.text),
+            h('div',{style:{display:"flex",gap:8}},
+              h('button',{onClick:()=>setResponses({...responses,[c.id]:true}),style:{
+                fontFamily:mono,fontSize:11,padding:"5px 14px",borderRadius:4,cursor:"pointer",transition:"all 0.15s",
+                background:responses[c.id]===true?C.success+"20":"transparent",
+                color:responses[c.id]===true?C.success:C.textDim,
+                border:"1px solid "+(responses[c.id]===true?C.success:C.border)
+              }},"\u2713 Sounds right"),
+              h('button',{onClick:()=>setResponses({...responses,[c.id]:false}),style:{
+                fontFamily:mono,fontSize:11,padding:"5px 14px",borderRadius:4,cursor:"pointer",transition:"all 0.15s",
+                background:responses[c.id]===false?C.danger+"20":"transparent",
+                color:responses[c.id]===false?C.danger:C.textDim,
+                border:"1px solid "+(responses[c.id]===false?C.danger:C.border)
+              }},"\u2717 Not quite"))))),
+
+      // Summary
+      allAnswered&&h('div',{className:"fade-in",style:{marginTop:16,padding:mb?"12px 14px":"14px 18px",borderRadius:8,
+        background:disagreeCount===0?C.success+"10":C.accent+"10",
+        border:"1px solid "+(disagreeCount===0?C.success+"40":C.accent+"40")}},
+        h('p',{style:{fontFamily:serif,fontSize:mb?13:14,color:disagreeCount===0?C.success:C.accent,lineHeight:1.5}},
+          disagreeCount===0
+            ?"All four statements match your beliefs. Your distribution is internally consistent. In a facilitated session, this is the point where the analyst would record your distribution and move to the next parameter."
+            :disagreeCount+" of 4 statements did not feel right. That is exactly what this step is for. Go back to the sliders in Step 3 and adjust until all four statements match your intuition. In a real SHELF session, a facilitator would walk you through this iteration.")));
+  }
+
+  // ── Main App ──
+  function App(){
+    const mb=useIsMobile();
+    const[presetIdx,setPresetIdx]=useState(0);
+    const preset=PRESETS[presetIdx];
+    const[customQ,setCustomQ]=useState("What is the probability of X?");
+    const[low,setLow]=useState(preset.low);
+    const[high,setHigh]=useState(preset.high);
+    const[unit,setUnit]=useState(preset.unit);
+    const[numBins,setNumBins]=useState(preset.defaultBins);
+    const[bins,setBins]=useState(()=>new Array(preset.defaultBins).fill(0));
+    const[hasInteracted,setHasInteracted]=useState(false);
+    const[adj,setAdj]=useState({peak:0,certainty:1,skew:0});
+
+    const placed=bins.reduce((s,v)=>s+v,0);
+    const fit=useMemo(()=>placed>=3?fitBeta(bins,low,high):null,[bins,low,high,placed]);
+
+    function handlePresetChange(e){
+      const idx=parseInt(e.target.value);
+      setPresetIdx(idx);
+      const p=PRESETS[idx];
+      setLow(p.low);setHigh(p.high);setUnit(p.unit);setNumBins(p.defaultBins);
+      setBins(new Array(p.defaultBins).fill(0));
+      setHasInteracted(false);
+      setAdj({peak:0,certainty:1,skew:0});
+    }
+    function handleBinsChange(e){
+      const nb=Math.max(4,Math.min(20,parseInt(e.target.value)||10));
+      setNumBins(nb);setBins(new Array(nb).fill(0));setHasInteracted(false);setAdj({peak:0,certainty:1,skew:0});
+    }
+    function handleSetBins(val){
+      setNumBins(val);setBins(new Array(val).fill(0));setHasInteracted(false);setAdj({peak:0,certainty:1,skew:0});
+    }
+    function handleReset(){
+      setBins(new Array(numBins).fill(0));setHasInteracted(false);setAdj({peak:0,certainty:1,skew:0});
+    }
+    function wrappedSetBins(newBins){
+      setBins(newBins);
+      if(!hasInteracted)setHasInteracted(true);
+    }
+
+    const question=presetIdx===PRESETS.length-1?customQ:preset.label;
+
+    return h('div',{style:{minHeight:"100vh",display:"flex",flexDirection:"column"}},
+      h(Header,{isMobile:mb}),
+
+      h('div',{style:{maxWidth:1100,margin:"0 auto",padding:mb?"24px 16px":"48px 24px",flex:1,width:"100%"}},
+        // Title
+        h('h1',{style:{fontFamily:serif,fontSize:mb?26:36,fontWeight:700,color:C.text,lineHeight:1.25,marginBottom:8}},"Chips and Bins"),
+        h('p',{style:{fontFamily:serif,fontSize:mb?14:16,color:C.textMuted,lineHeight:1.6,marginBottom:mb?32:48,maxWidth:680}},
+          "A structured elicitation method used across healthcare, environmental science, and natural hazard assessment \u2014 and one that can also be applied to cyber risk quantification."),
+
+        // ── ACT 1: THE LESSON ──
+        h(SLabel,{n:"1",label:"The Lesson",color:C.danger}),
+        h('div',{style:{maxWidth:680,marginBottom:mb?32:48}},
+
+          h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:16}},
+            "There are many ways to elicit beliefs from subject matter experts for use in a risk assessment: Delphi panels, structured interviews, confidence interval training, and several more. Each has trade-offs in cognitive load, group dynamics, and the richness of the output. The risk analyst needs to weigh the pros and cons for their context. This tool focuses on one specific technique, the chips and bins method, which is distinctive in that it produces a full probability distribution rather than a point estimate or a categorical label like \"high\" or \"likely\" [1]."),
+
+          h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:16}},
+            "The chips and bins method (also called the trial roulette) is one of the most widely validated techniques for getting there [1][2][3]. Give the expert 20 chips, each worth 5% of belief, and a row of bins spanning the plausible range. They stack chips where they think the answer lives. It is used routinely in healthcare, where Hadorn et al. found that 57% of health economic decision models include expert-elicited parameters [6], in environmental science, and in natural hazard assessment, drawing from a research base of over 67,000 elicited distributions across dozens of domains [7]. In comparative studies, experts consistently rate it easier to use than methods requiring direct estimation of quantiles or variances [2][4]."),
+
+          h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75}},
+            "Why does it work? Because experts are better at relative comparisons (\u201Cthis bin is twice as likely as that one\u201D) than generating absolute probabilities, and the visual feedback from stacking chips reduces overconfidence and anchoring bias [3][4][5]. It has limits: experts can fixate on the histogram\u2019s shape rather than the probabilities, and group sessions are slower because each chip requires discussion [5]. But compared to unstructured point estimates, categorical labels like \u201Chigh\u201D or \u201Clikely,\u201D or color-coded risk matrices, it captures far richer information about what someone actually believes. In the standard protocol, chip placement is just the first step. The facilitator then fits a smooth curve and shows it back to the expert, who can adjust the shape until it matches their beliefs [4][5]. The tool below walks through that full sequence.")),
+
+        // ── ACT 2: THE TOOL ──
+        h(SLabel,{n:"2",label:"The Tool",color:C.accent}),
+
+        // Step 1: Configure
+        h(StepHeader,{label:"Step 1: Define Your Question",color:C.danger}),
+        h('div',{style:{display:"grid",gridTemplateColumns:mb?"1fr":"1fr 1fr",gap:16,marginBottom:24}},
+          h('div',null,
+            h('div',{style:{fontFamily:mono,fontSize:11,color:C.textMuted,marginBottom:6}},"Question"),
+            h('select',{value:presetIdx,onChange:handlePresetChange,style:{fontSize:mb?12:13}},
+              ...PRESETS.map((p,i)=>h('option',{key:i,value:i},p.label)))),
+          presetIdx===PRESETS.length-1&&h('div',null,
+            h('div',{style:{fontFamily:mono,fontSize:11,color:C.textMuted,marginBottom:6}},"Your question"),
+            h('input',{type:"text",value:customQ,onChange:e=>setCustomQ(e.target.value),style:{fontSize:mb?12:13}}))),
+
+        h('div',{style:{display:"grid",gridTemplateColumns:mb?"1fr 1fr 1fr":"1fr 1fr 1fr 1fr",gap:12,marginBottom:24}},
+          h('div',null,
+            h('div',{style:{fontFamily:mono,fontSize:11,color:C.textMuted,marginBottom:6}},"Lower bound"),
+            h('input',{type:"number",value:low,onChange:e=>{setLow(parseFloat(e.target.value)||0);setBins(new Array(numBins).fill(0));setHasInteracted(false);}})),
+          h('div',null,
+            h('div',{style:{fontFamily:mono,fontSize:11,color:C.textMuted,marginBottom:6}},"Upper bound"),
+            h('input',{type:"number",value:high,onChange:e=>{setHigh(parseFloat(e.target.value)||100);setBins(new Array(numBins).fill(0));setHasInteracted(false);}})),
+          h('div',null,
+            h('div',{style:{fontFamily:mono,fontSize:11,color:C.textMuted,marginBottom:6}},"Unit label"),
+            h('input',{type:"text",value:unit,onChange:e=>setUnit(e.target.value),placeholder:"%, $K, days..."})),
+          h('div',null,
+            h('div',{style:{fontFamily:mono,fontSize:11,color:C.textMuted,marginBottom:6}},"Number of bins"),
+            h('div',{style:{display:"flex",gap:4}},
+              ...[8,10,12,15,20].map(n=>
+                h('button',{key:n,onClick:()=>handleSetBins(n),style:{
+                  flex:1,padding:"6px 0",fontSize:11,fontWeight:numBins===n?700:400,
+                  background:numBins===n?C.accent:C.bgCard,
+                  color:numBins===n?"#000":C.textMuted,
+                  border:"1px solid "+(numBins===n?C.accent:C.border),
+                  borderRadius:4,transition:"all 0.15s"
+                }},n))))),
+
+        // Question display
+        h('div',{style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"14px 16px":"16px 20px",marginBottom:20}},
+          h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}},"Eliciting"),
+          h('div',{style:{fontFamily:serif,fontSize:mb?15:17,color:C.text,fontWeight:600,lineHeight:1.4}},question)),
+
+        // Step 2: Place chips
+        h(StepHeader,{label:"Step 2: Place Your "+TOTAL_CHIPS+" Chips",color:C.accent}),
+        h(ChipCounter,{placed,total:TOTAL_CHIPS,isMobile:mb}),
+        h(BinsGrid,{bins,setBins:wrappedSetBins,numBins,low,high,unit,isMobile:mb}),
+
+        // Reset button
+        placed>0&&h('div',{style:{marginTop:12,display:"flex",gap:8}},
+          h('button',{onClick:handleReset,style:{
+            fontFamily:mono,fontSize:11,padding:"6px 16px",
+            background:"transparent",color:C.textDim,border:"1px solid "+C.border,
+            borderRadius:4,transition:"all 0.15s"
+          }},"Reset Chips")),
+
+        // Results
+        placed>=3&&h('div',{style:{marginTop:32}},
+          h(StepHeader,{label:"Results: Your Fitted Distribution",color:C.success}),
+
+          h('div',{style:{fontFamily:serif,fontSize:mb?14:15,color:C.textMuted,lineHeight:1.6,marginBottom:16,maxWidth:680}},
+            placed<TOTAL_CHIPS
+              ?"You have placed "+placed+" of "+TOTAL_CHIPS+" chips. The distribution below is preliminary. Keep placing chips for a more refined fit."
+              :"All "+TOTAL_CHIPS+" chips placed. Here is the probability distribution that represents your beliefs."),
+
+          fit&&fit.fallback&&h('div',{style:{background:C.dangerMuted,border:"1px solid "+C.danger+"40",borderRadius:6,padding:"10px 14px",marginBottom:12,fontFamily:mono,fontSize:11,color:C.danger,lineHeight:1.5}},
+            "Your chip placement produced a pattern that the beta distribution cannot represent well (e.g., U-shaped or bimodal). The curve shown is a default fallback shape and may not reflect your actual beliefs. Try redistributing your chips into a single-peaked pattern."),
+
+          h(FittedChart,{fit,bins,numBins,low,high,unit,isMobile:mb}),
+          fit&&h(StatsPanel,{fit,unit,isMobile:mb}),
+
+          fit&&h('div',{className:"fade-in",style:{background:C.bgCard,border:"1px solid "+C.border,borderRadius:8,padding:mb?"14px 16px":"16px 20px",marginTop:16,maxWidth:680}},
+            h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}},"Interpretation"),
+            h('p',{style:{fontFamily:serif,fontSize:mb?14:15,color:C.textMuted,lineHeight:1.6,marginBottom:8}},shapeDesc(fit)),
+            h('p',{style:{fontFamily:serif,fontSize:mb?14:15,color:C.textMuted,lineHeight:1.6}},confidenceDesc(fit,low,high)),
+            fit&&h('div',{style:{fontFamily:mono,fontSize:10,color:C.textDim,marginTop:12,padding:"8px 10px",background:C.bg,borderRadius:4,border:"1px solid "+C.border}},
+              "Fitted Beta(\u03B1="+fit.alpha.toFixed(2)+", \u03B2="+fit.beta.toFixed(2)+") scaled to ["+formatVal(low,unit)+", "+formatVal(high,unit)+"]"))),
+
+        // ── Step 3: Refine the Curve ──
+        placed===TOTAL_CHIPS&&fit&&h('div',{style:{marginTop:32}},
+          h(StepHeader,{label:"Step 3: Refine Your Curve",color:C.accent}),
+          h('p',{style:{fontFamily:serif,fontSize:mb?14:15,color:C.textMuted,lineHeight:1.6,marginBottom:8,maxWidth:680}},
+            "Your chips implied the dashed curve below. Use the sliders to fine-tune it. Shift the peak, widen or narrow the spread, or adjust the asymmetry. In a facilitated session, this is where the analyst asks: \u201CDoes this shape match what you believe?\u201D"),
+          h(CurveRefiner,{baseFit:fit,adj,setAdj,low,high,unit,isMobile:mb})),
+
+        // ── Step 4: Challenge Your Beliefs ──
+        placed===TOTAL_CHIPS&&fit&&h('div',{style:{marginTop:32}},
+          h(StepHeader,{label:"Step 4: Challenge Your Beliefs",color:C.danger}),
+          h(ChallengePanel,{fit,adj,baseFit:fit,low,high,unit,question,isMobile:mb})),
+
+        // ── ACT 3: THE TAKEAWAY ──
+        h('div',{style:{marginTop:mb?40:56}},
+          h(SLabel,{n:"3",label:"The Takeaway",color:C.success}),
+          h('div',{style:{maxWidth:680}},
+            h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:16}},
+              hasInteracted
+                ?"You just did something most risk programs never attempt: you turned a subjective belief into an explicit probability distribution. That distribution captures two things a point estimate cannot: where you think the answer is, and how sure you are. It can feed directly into a Monte Carlo simulation as an informed prior, replacing the uniform \"we have no idea\" distributions that silently break so many models."
+                :"The chips and bins method is one of the most intuitive ways to capture expert uncertainty. By breaking the judgment into small, concrete steps, placing physical (or digital) chips, it avoids the cognitive traps that plague direct estimation. People are better at making relative comparisons (\"this bin is about twice as likely as that one\") than generating absolute probabilities [3][4]."),
+            h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:16}},
+              hasInteracted
+                ?"In practice, you would run this exercise with a trained facilitator who can watch for cognitive biases like anchoring and overconfidence [5]. After placing chips, the facilitator feeds back implied statistics, like the median, and asks: \"Does this match what you believe?\" This feedback loop is what separates structured elicitation from casual guessing [4]. The best sessions also use \"seed questions\" with known answers so the analyst can assess how well the expert translates knowledge into probabilities [7]."
+                :"In real-world practice, this exercise is conducted in a facilitated session. Training is crucial and should focus on avoiding bias and expressing uncertainty [5]. Experts are walked through debiasing exercises, reminded that there are no right or wrong answers, and encouraged to think carefully about extreme values. Following chip placement, the facilitator feeds back the implied distribution and asks the expert to confirm it matches their beliefs [1][4][5]."),
+            h('p',{style:{fontFamily:serif,fontSize:mb?15:16,color:C.textMuted,lineHeight:1.75,marginBottom:24}},
+              "From Heatmaps to Histograms introduces structured expert elicitation as one of several techniques for building inputs to your risk model. This tool goes deeper on the chips and bins method specifically, drawing from the healthcare and environmental science literature where it has been used for decades. If nothing else, it should convince you that there are better ways to capture expert judgment than asking for a single number.")),
+
+          // CTAs
+          h('div',{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:40}},
+            h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:{textDecoration:"none"}},
+              h('button',{style:{background:C.accent,color:"#000",border:"none",borderRadius:6,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}},"Order the Book")),
+            h('a',{href:"https://www.heatmapstohistograms.com/",style:{textDecoration:"none"}},
+              h('button',{style:{background:"transparent",color:C.accent,border:"1px solid "+C.accent,borderRadius:6,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}},"Book Site")),
+            h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:{textDecoration:"none"}},
+              h('button',{style:{background:"transparent",color:C.accent,border:"1px solid "+C.accent,borderRadius:6,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}},"Newsletter"))),
+
+          // ── REFERENCES ──
+          h('div',{style:{maxWidth:680,marginTop:8,borderTop:"1px solid "+C.border,paddingTop:24}},
+            h('div',{style:{fontFamily:mono,fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}},"References"),
+            h('div',{style:{fontFamily:serif,fontSize:mb?12:13,color:C.textDim,lineHeight:1.7}},
+              h('p',{style:{marginBottom:8}},
+                "[1] Morris, D.E., Oakley, J.E. & Crowe, J.A. (2014). A web-based tool for eliciting probability distributions from experts. ",
+                h('em',null,"Environmental Modelling & Software"),", 52, 1\u20134."),
+              h('p',{style:{marginBottom:8}},
+                "[2] Grigore, B., Peters, J., Hyde, C. & Stein, K. (2016). A comparison of two methods for expert elicitation in health technology assessments. ",
+                h('em',null,"BMC Medical Research Methodology"),", 16, 85."),
+              h('p',{style:{marginBottom:8}},
+                "[3] Veen, D., Stoel, D., Zondervan-Zwijnenburg, M. & van de Schoot, R. (2017). Proposal for a Five-Step Method to Elicit Expert Judgment. ",
+                h('em',null,"Frontiers in Psychology"),", 8, 2110."),
+              h('p',{style:{marginBottom:8}},
+                "[4] O\u2019Hagan, A., Buck, C.E., Daneshkhah, A., Eiser, J.R., Garthwaite, P.H., Jenkinson, D.J., Oakley, J.E. & Rakow, T. (2006). ",
+                h('em',null,"Uncertain Judgements: Eliciting Experts\u2019 Probabilities"),". Wiley."),
+              h('p',{style:{marginBottom:8}},
+                "[5] Horscroft, J., Lee, D., Jankovic, D., Soares, M. & Bojke, L. (2022). Structured expert elicitation for healthcare decision making: A practical guide. Lumanity & University of York."),
+              h('p',{style:{marginBottom:8}},
+                "[6] Hadorn, D., Kvizhinadze, G., Collinson, L. & Blakely, T. (2014). Use of expert knowledge elicitation to estimate parameters in health economic decision models. ",
+                h('em',null,"Int. J. Technol. Assess. Health Care"),", 30(4), 461\u2013468."),
+              h('p',{style:{marginBottom:0}},
+                "[7] Cooke, R.M. & Goossens, L.L.H.J. (2008). TU Delft expert judgment data base. ",
+                h('em',null,"Reliability Engineering & System Safety"),", 93(5), 657\u2013674."))))),
+
+      h(Disclaimer),
+      h(Footer,{isMobile:mb}));
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+  </script>
+</body>
+</html>
