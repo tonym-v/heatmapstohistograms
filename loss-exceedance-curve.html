@@ -218,7 +218,7 @@
     useEffect(()=>{if(!ref.current)return;const o=new ResizeObserver(e=>{for(const x of e)setCw(x.contentRect.width);});o.observe(ref.current);return()=>o.disconnect();},[]);
     if(!lecData||!lecData.length)return null;
 
-    const mg={top:32,right:mb?12:24,bottom:mb?52:56,left:mb?52:64};
+    const mg={top:40,right:mb?12:24,bottom:mb?52:56,left:mb?52:64};
     const w=cw,ht=mb?400:520;
     const pw=w-mg.left-mg.right,ph=ht-mg.top-mg.bottom;
 
@@ -298,8 +298,7 @@
         ...xTicks.map(v=>h('line',{key:"xg"+v,x1:xS(v),y1:mg.top,x2:xS(v),y2:ht-mg.bottom,stroke:C.border,strokeWidth:0.5})),
         ...xTicks.map(v=>h('text',{key:"xl"+v,x:xS(v),y:ht-mg.bottom+14,fill:C.textDim,fontSize:mb?8:9,textAnchor:"middle",fontFamily:mono},fmtD(v))),
         // Axis labels
-        h('text',{x:mg.left-6,y:mg.top-8,fill:C.textMuted,fontSize:mb?7:8,textAnchor:"end",fontFamily:mono},"Probability of"),
-        h('text',{x:mg.left-6,y:mg.top-0,fill:C.textMuted,fontSize:mb?7:8,textAnchor:"end",fontFamily:mono},"exceeding \u2192"),
+        h('text',{x:mg.left+4,y:mg.top-16,fill:C.textMuted,fontSize:mb?8:9,textAnchor:"start",fontFamily:mono},"Probability of exceeding \u2192"),
         h('text',{x:w/2,y:ht-8,fill:C.textMuted,fontSize:mb?9:10,textAnchor:"middle",fontFamily:mono},"Annual Loss"),
         // Fill
         h('path',{d:path+" L "+xS(lecData[lecData.length-1].loss)+" "+yS(0)+" L "+xS(lecData[0].loss)+" "+yS(0)+" Z",fill:C.accent,opacity:0.08}),
