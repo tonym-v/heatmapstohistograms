@@ -144,10 +144,11 @@
           h('a',{href:"https://www.heatmapstohistograms.com/",style:{textDecoration:"none"}},
             h('div',{style:{fontFamily:mono,fontSize:mb?10:11,letterSpacing:"0.15em",color:C.accent,textTransform:"uppercase",marginBottom:2}},"From Heatmaps to Histograms")),
           h('div',{style:{fontFamily:mono,fontSize:mb?10:11,color:C.textDim}},"\u00B7 Interactive Tools \u00B7 Tony Martin-Vegue")),
-        !mb&&h('div',{style:{display:"flex",gap:20,fontFamily:mono,fontSize:11,color:C.textDim}},
-          h('a',{href:"https://www.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Book"),
-          h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Newsletter"),
-          h('a',{href:"https://www.95risk.com",style:{color:C.textDim,textDecoration:"none"}},"95 Risk Advisory"))));
+        h('div',{style:{display:"flex",alignItems:"center",gap:20,fontFamily:mono,fontSize:11,color:C.textDim}},
+          h('a',{href:"https://www.heatmapstohistograms.com/downloads",style:{color:C.accent,textDecoration:"none",border:"1px solid "+C.accent,borderRadius:20,padding:"4px 14px",fontWeight:600,fontSize:11,fontFamily:mono}},"More Tools"),
+          !mb&&h('a',{href:"https://www.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Book"),
+          !mb&&h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:{color:C.textDim,textDecoration:"none"}},"Newsletter"),
+          !mb&&h('a',{href:"https://www.95risk.com",style:{color:C.textDim,textDecoration:"none"}},"95 Risk Advisory"))));
   }
 
   function Footer({isMobile:mb}){
@@ -158,6 +159,7 @@
           h('div',{style:{fontFamily:mono,fontSize:11,color:C.accent,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}},"From Heatmaps to Histograms"),
           h('div',{style:{fontFamily:mono,fontSize:11,color:C.textDim}},"Tony Martin-Vegue \u00B7 Apress")),
         h('div',{style:{display:"flex",gap:mb?20:24,fontFamily:mono,fontSize:11}},
+          h('a',{href:"https://www.heatmapstohistograms.com/downloads",style:{color:C.accent,textDecoration:"none",border:"1px solid "+C.accent,borderRadius:20,padding:"4px 14px",fontWeight:600}},"More Tools"),
           h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:ls},"Order"),
           h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:ls},"Newsletter"),
           h('a',{href:"https://www.heatmapstohistograms.com/",style:ls},"Book Site"),
@@ -574,10 +576,10 @@
 
           // CTAs
           h('div',{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:40}},
+            h('a',{href:"https://www.heatmapstohistograms.com/downloads",style:{textDecoration:"none"}},
+              h('button',{style:{background:"transparent",color:C.accent,border:"1px solid "+C.accent,borderRadius:6,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}},"More Tools")),
             h('a',{href:"https://www.amazon.com/Heatmaps-Histograms-Practical-Guide-Quantification/dp/B0FX7V3J7D",style:{textDecoration:"none"}},
-              h('button',{style:{background:C.accent,color:"#000",border:"none",borderRadius:6,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}},"Order the Book")),
-            h('a',{href:"https://www.heatmapstohistograms.com/",style:{textDecoration:"none"}},
-              h('button',{style:{background:"transparent",color:C.accent,border:"1px solid "+C.accent,borderRadius:6,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}},"Book Site")),
+              h('button',{style:{background:"transparent",color:C.accent,border:"1px solid "+C.accent,borderRadius:6,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}},"Order the Book")),
             h('a',{href:"https://newsletter.heatmapstohistograms.com/",style:{textDecoration:"none"}},
               h('button',{style:{background:"transparent",color:C.accent,border:"1px solid "+C.accent,borderRadius:6,padding:"10px 20px",fontSize:13,fontWeight:600,cursor:"pointer"}},"Newsletter"))))),
 
